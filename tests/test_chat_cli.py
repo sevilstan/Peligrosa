@@ -1,7 +1,9 @@
 import pytest
 
+from app.core.config import settings
 from app.models import Character, User
 from scripts.chat_cli import (
+    create_provider,
     find_latest_conversation,
     get_active_character,
     get_or_create_user,
@@ -17,6 +19,21 @@ def test_parse_args_defaults():
     assert args.character == "elena"
     assert args.provider == "groq"
     assert args.new is False
+
+
+def test_parse_args_accepts_a_model_override():
+    args = parse_args(["--character", "elena", "--model", "llama-3.3-70b-versatile"])
+
+    assert args.model == "llama-3.3-70b-versatile"
+    assert parse_args(["--character", "elena"]).model is None
+
+
+def test_create_provider_passes_the_model_override(monkeypatch):
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "test-key-not-real")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key-not-real")
+
+    assert create_provider("groq", "some-model").model == "some-model"
+    assert create_provider("openai", "other-model").model == "other-model"
 
 
 def test_parse_args_requires_a_character():

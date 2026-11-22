@@ -6,11 +6,14 @@ from app.providers.base import AIProvider
 
 class GroqProvider(AIProvider):
 
-    def __init__(self):
+    def __init__(self, model: str | None = None):
         if not settings.GROQ_API_KEY:
             raise RuntimeError(
                 "GROQ_API_KEY is not set. Add it to your .env file."
             )
+
+        # An explicit model wins over GROQ_MODEL (handy for A/B testing).
+        self.model = model or settings.GROQ_MODEL
 
         self.client = AsyncOpenAI(
             api_key=settings.GROQ_API_KEY,
@@ -26,7 +29,7 @@ class GroqProvider(AIProvider):
     ) -> str:
 
         response = await self.client.chat.completions.create(
-            model=settings.GROQ_MODEL,
+            model=self.model,
             messages=[
                 {
                     "role": "system",

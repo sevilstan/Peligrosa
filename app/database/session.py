@@ -10,9 +10,10 @@ engine = None
 SessionLocal = None
 
 if settings.DATABASE_URL:
+    # SQL logging is controlled in app.core.logging_config (SQL_ECHO), not
+    # with echo=True: echo adds its own handler and prints every line twice.
     engine = create_async_engine(
         settings.DATABASE_URL,
-        echo=settings.DEBUG,
         pool_pre_ping=True,
     )
 

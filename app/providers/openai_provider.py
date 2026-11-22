@@ -6,11 +6,14 @@ from app.providers.base import AIProvider
 
 class OpenAIProvider(AIProvider):
 
-    def __init__(self):
+    def __init__(self, model: str | None = None):
         if not settings.OPENAI_API_KEY:
             raise RuntimeError(
                 "OPENAI_API_KEY is not set. Add it to your .env file."
             )
+
+        # An explicit model wins over OPENAI_MODEL (handy for A/B testing).
+        self.model = model or settings.OPENAI_MODEL
 
         self.client = AsyncOpenAI(
             api_key=settings.OPENAI_API_KEY,
@@ -25,7 +28,7 @@ class OpenAIProvider(AIProvider):
     ) -> str:
 
         response = await self.client.responses.create(
-            model=settings.OPENAI_MODEL,
+            model=self.model,
             instructions=system_prompt,
             input=messages,
         )
