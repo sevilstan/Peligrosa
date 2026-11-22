@@ -1,19 +1,19 @@
-
 from fastapi import FastAPI
+from app.core.config import settings
 
 app = FastAPI(
-    title="Peligrosa API",
+    title=f"{settings.APP_NAME} API",
     description="Peligrosa AI Companion Platform",
-    version="0.1.0"
+    version="0.1.0",
 )
 
 
 @app.get("/")
 async def root():
     return {
-        "project": "Peligrosa",
+        "project": settings.APP_NAME,
+        "environment": settings.APP_ENV,
         "status": "running",
-        "message": "Welcome to Peligrosa!"
     }
 
 
