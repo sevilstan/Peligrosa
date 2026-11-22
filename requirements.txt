@@ -1,0 +1,15 @@
+# Peligrosa runtime dependencies
+fastapi==0.163.1
+uvicorn[standard]==0.54.0
+
+# Database
+SQLAlchemy[asyncio]==2.0.58
+asyncpg==0.32.0
+alembic==1.20.1
+
+# Configuration
+pydantic-settings==2.16.3
+python-dotenv==1.2.4
+
+# AI providers (Groq uses the OpenAI-compatible Python SDK)
+openai==3.57.0
