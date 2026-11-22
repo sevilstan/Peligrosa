@@ -10,6 +10,7 @@ existing YAML files.
 import argparse
 import asyncio
 from pathlib import Path
+import re
 
 import yaml
 from sqlalchemy import select
@@ -52,6 +53,9 @@ async def export_characters(overwrite: bool = False) -> tuple[int, int]:
         characters = result.scalars().all()
 
         for character in characters:
+            if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", character.slug):
+                raise ValueError(f"Unsafe character slug: {character.slug!r}")
+
             output_path = CHARACTERS_DIR / f"{character.slug}.yaml"
 
             if output_path.exists() and not overwrite:
