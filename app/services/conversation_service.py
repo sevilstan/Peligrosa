@@ -1,7 +1,9 @@
+import logging
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
 from app.services.character_memory_service import CharacterMemoryService
 from app.services.memory_extractor import MemoryExtractor
 from app.models.message import Message
@@ -13,6 +15,23 @@ from app.services.conversation_summarizer import ConversationSummarizer
 from app.services.character_prompt_builder import CharacterPromptBuilder
 from app.services.character_definition_loader import CharacterDefinitionLoader
 from app.providers.groq_provider import GroqProvider
+
+logger = logging.getLogger(__name__)
+
+# Summarize only once this many unsummarized messages have piled up.
+SUMMARY_MIN_NEW_MESSAGES = 10
+# How many of the latest unsummarized messages are sent to the model.
+RECENT_MESSAGE_LIMIT = 20
+# How many of the character's memories about the user go into the prompt.
+MEMORY_LIMIT = 10
+
+
+class AIResponseError(Exception):
+    """The AI provider could not produce a reply.
+
+    The user's message is already saved when this is raised, so a caller
+    (for example the Telegram handler) can tell the user to try again.
+    """
 
 
 class ConversationService:
@@ -30,14 +49,12 @@ class ConversationService:
         character_id,
         title=None,
     ):
-        # 1. Kullanıcıyı bul
         user_result = await self.session.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
 
         if user is None:
             raise ValueError("Kullanıcı bulunamadı.")
 
-        # 2. Karakteri bul
         character_result = await self.session.execute(
             select(Character).where(
                 Character.id == character_id,
@@ -49,21 +66,14 @@ class ConversationService:
         if character is None:
             raise ValueError("Karakter bulunamadı veya aktif değil.")
 
-        # 3. Konuşmayı oluştur
         conversation = Conversation(
             user=user,
             title=title or character.name,
             conversation_type="direct",
         )
 
-        # 4. Karakteri katılımcı olarak ekle
-        participant = ConversationParticipant(
-            character=character,
-        )
+        conversation.participants.append(ConversationParticipant(character=character))
 
-        conversation.participants.append(participant)
-
-        # 5. Veritabanına kaydet
         self.session.add(conversation)
         await self.session.commit()
 
@@ -73,6 +83,15 @@ class ConversationService:
         self,
         conversation: Conversation,
     ):
+        """Summarize older messages once enough new ones have piled up.
+
+        Safe to call concurrently for the same conversation: the result is
+        written with a compare-and-set on summary_message_count, so only one
+        writer wins and the others discard their (duplicate) summary. No row
+        lock is held during the AI call, so new messages are never blocked.
+        """
+        previous_count = conversation.summary_message_count
+
         result = await self.session.execute(
             select(Message)
             .where(Message.conversation_id == conversation.id)
@@ -80,40 +99,54 @@ class ConversationService:
         )
 
         messages = result.scalars().all()
+        new_messages = messages[previous_count:]
 
-        # Henüz özetlenmemiş mesajları belirle
-        new_messages = messages[conversation.summary_message_count :]
-        print("\n--- ÖZETLEME KONTROLÜ ---")
-        print("Toplam mesaj:", len(messages))
-        print("Önceden özetlenen:", conversation.summary_message_count)
-        print("Yeni mesaj:", len(new_messages))
-        # En az 10 yeni mesaj yoksa özetleme yapma
-        if len(new_messages) < 10:
+        logger.debug(
+            "Summary check: total=%d already_summarized=%d new=%d",
+            len(messages),
+            previous_count,
+            len(new_messages),
+        )
+
+        if len(new_messages) < SUMMARY_MIN_NEW_MESSAGES:
             return
 
-        summarizer_messages = []
-
-        for message in new_messages:
-            role = "user" if message.sender_type == "user" else "assistant"
-
-            summarizer_messages.append(
-                {
-                    "role": role,
-                    "content": message.content,
-                }
-            )
+        summarizer_messages = [
+            {
+                "role": "user" if message.sender_type == "user" else "assistant",
+                "content": message.content,
+            }
+            for message in new_messages
+        ]
 
         updated_summary = await self.summarizer.summarize(
             messages=summarizer_messages,
             existing_summary=conversation.summary,
         )
 
-        conversation.summary = updated_summary
-        conversation.summary_message_count = len(messages)
+        update_result = await self.session.execute(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation.id,
+                Conversation.summary_message_count == previous_count,
+            )
+            .values(
+                summary=updated_summary,
+                summary_message_count=len(messages),
+            )
+            .execution_options(synchronize_session=False)
+        )
 
         await self.session.commit()
-        print("ÖZET KAYDEDİLDİ!")
-        print("Yeni sayaç:", conversation.summary_message_count)
+
+        if update_result.rowcount == 0:
+            logger.info("Summary was already updated by another request; skipping.")
+            await self.session.refresh(conversation)
+            return
+
+        conversation.summary = updated_summary
+        conversation.summary_message_count = len(messages)
+        logger.info("Conversation summary updated (%d messages).", len(messages))
 
     async def send_message(
         self,
@@ -121,7 +154,141 @@ class ConversationService:
         user_id,
         content,
     ):
-        # 1. Konuşmayı ve karakter katılımcılarını bul
+        conversation, character = await self._load_direct_conversation(
+            conversation_id, user_id
+        )
+
+        content = content.strip()
+
+        if not content:
+            raise ValueError("Mesaj boş olamaz.")
+
+        # Save the user's message first: it must survive any later failure.
+        self.session.add(
+            Message(
+                conversation_id=conversation.id,
+                sender_type="user",
+                sender_user_id=user_id,
+                content=content,
+                message_type="text",
+            )
+        )
+        await self.session.commit()
+
+        memories_ok = await self._update_memories(user_id, character, content)
+
+        if not memories_ok:
+            # The rollback inside _update_memories expired our ORM objects.
+            conversation, character = await self._load_direct_conversation(
+                conversation_id, user_id
+            )
+
+        history_result = await self.session.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation.id)
+            .order_by(Message.created_at, Message.id)
+        )
+        history = history_result.scalars().all()
+
+        unsummarized = history[conversation.summary_message_count :]
+
+        ai_messages = [
+            {
+                "role": "user" if message.sender_type == "user" else "assistant",
+                "content": message.content,
+            }
+            for message in unsummarized[-RECENT_MESSAGE_LIMIT:]
+        ]
+
+        system_prompt = await self.build_system_prompt(
+            conversation=conversation,
+            character=character,
+            user_id=user_id,
+        )
+
+        reply = await self._generate_reply(system_prompt, ai_messages)
+
+        character_message = Message(
+            conversation_id=conversation.id,
+            sender_type="character",
+            sender_character_id=character.id,
+            content=reply,
+            message_type="text",
+        )
+
+        self.session.add(character_message)
+        await self.session.commit()
+
+        # The summary is a background nicety: if it fails the user must
+        # still get the reply that was just generated.
+        try:
+            await self.update_conversation_summary(conversation)
+        except Exception as exc:
+            logger.warning(
+                "Summary update failed, will retry on a later message: %s",
+                type(exc).__name__,
+            )
+            await self.session.rollback()
+            # rollback expired the returned object; make it usable again.
+            await self.session.refresh(character_message)
+
+        return character_message
+
+    async def build_system_prompt(
+        self,
+        conversation: Conversation,
+        character: Character,
+        user_id,
+    ) -> str:
+        """Build the system prompt the character would use right now.
+
+        Memories are always loaded with user_id AND character_id so a
+        character never sees another character's (or user's) memories.
+        """
+        memories = await CharacterMemoryService(self.session).get_memories(
+            user_id=user_id,
+            character_id=character.id,
+            limit=MEMORY_LIMIT,
+        )
+
+        # Prefer the platform-managed YAML definition when it exists.
+        # Characters without a YAML file keep using their database fields.
+        prompt_character = self.character_definition_loader.load(character.slug)
+        if prompt_character is None:
+            prompt_character = character
+
+        return self.prompt_builder.build(
+            character=prompt_character,
+            memories=memories,
+            summary=conversation.summary,
+        )
+
+    async def get_conversation_history(
+        self,
+        conversation_id,
+        user_id,
+    ):
+        result = await self.session.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
+            )
+        )
+
+        conversation = result.scalar_one_or_none()
+
+        if conversation is None:
+            raise ValueError("Konuşma bulunamadı.")
+
+        messages_result = await self.session.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at, Message.id)
+        )
+
+        return messages_result.scalars().all()
+
+    async def _load_direct_conversation(self, conversation_id, user_id):
         result = await self.session.execute(
             select(Conversation)
             .options(
@@ -140,175 +307,87 @@ class ConversationService:
         if conversation is None:
             raise ValueError("Konuşma bulunamadı.")
 
-        # Şimdilik doğrudan sohbet: tek karakter
+        # Direct chat only for now: exactly one character.
         if len(conversation.participants) != 1:
             raise ValueError("Doğrudan sohbet için tam olarak bir karakter gerekli.")
 
-        character = conversation.participants[0].character
+        return conversation, conversation.participants[0].character
 
-        # 2. Kullanıcı mesajını kontrol et
-        content = content.strip()
+    async def _update_memories(self, user_id, character, content) -> bool:
+        """Extract and store this character's memories from the user message.
 
-        if not content:
-            raise ValueError("Mesaj boş olamaz.")
-
-        # 3. Kullanıcı mesajını kaydet
-        user_message = Message(
-            conversation_id=conversation.id,
-            sender_type="user",
-            sender_user_id=user_id,
-            content=content,
-            message_type="text",
-        )
-
-        self.session.add(user_message)
-        await self.session.commit()
-
-
-        
-        extracted_memories = []
-
+        Memory is secondary to the conversation, so a failure here is logged
+        and swallowed. Returns False if the session had to be rolled back.
+        Only the error type is logged: database errors can carry the memory
+        text as a statement parameter.
+        """
         try:
             extracted_memories = await self.memory_extractor.extract(content)
         except Exception as exc:
-            print(f"Memory extraction error: {exc}")
+            logger.warning("Memory extraction failed: %s", type(exc).__name__)
+            return True
 
-        if extracted_memories:
-            character_memory_service = CharacterMemoryService(self.session)
+        if not extracted_memories:
+            return True
 
-            try:
-                for memory in extracted_memories:
-                    operation = memory["operation"]
-                    memory_key = memory["memory_key"]
+        memory_service = CharacterMemoryService(self.session)
+        character_id = character.id
 
-                    if operation == "delete":
-                        deleted = await character_memory_service.delete_memory_by_key(
-                            user_id=user_id,
-                            character_id=character.id,
-                            memory_key=memory_key,
-                        )
+        try:
+            for memory in extracted_memories:
+                operation = memory["operation"]
+                memory_key = memory["memory_key"]
 
-                        if deleted:
-                            print(f"Memory deleted: {memory_key}")
+                if operation == "delete":
+                    deleted = await memory_service.delete_memory_by_key(
+                        user_id=user_id,
+                        character_id=character_id,
+                        memory_key=memory_key,
+                    )
 
-                    elif operation == "upsert":
-                        await character_memory_service.add_memory(
-                            user_id=user_id,
-                            character_id=character.id,
-                            category=memory["category"],
-                            content=memory["content"],
-                            importance=memory["importance"],
-                            confidence=memory["confidence"],
-                            memory_key=memory_key,
-                        )
+                    if deleted:
+                        logger.info("Memory deleted: %s", memory_key)
 
-                        print(f"Memory saved or updated: {memory_key}")
+                elif operation == "upsert":
+                    await memory_service.add_memory(
+                        user_id=user_id,
+                        character_id=character_id,
+                        category=memory["category"],
+                        content=memory["content"],
+                        importance=memory["importance"],
+                        confidence=memory["confidence"],
+                        memory_key=memory_key,
+                    )
 
-                await self.session.commit()
+                    logger.info("Memory saved or updated: %s", memory_key)
 
-            except Exception:
-                await self.session.rollback()
-                raise
+            await self.session.commit()
+            return True
 
-        # 4. Konuşma geçmişini getir
-        history_result = await self.session.execute(
-            select(Message)
-            .where(Message.conversation_id == conversation.id)
-            .order_by(Message.created_at, Message.id)
-        )
-
-        history = history_result.scalars().all()
-
-        # 5. Geçmişi AI formatına dönüştür
-        # 5. Özetlenmemiş mesajları belirle
-        unsummarized_messages = history[conversation.summary_message_count :]
-
-        # Son 20 mesajı modele gönder
-        recent_messages = unsummarized_messages[-20:]
-
-        ai_messages = []
-
-        for message in recent_messages:
-            role = "user" if message.sender_type == "user" else "assistant"
-
-            ai_messages.append(
-                {
-                "role": role,
-                "content": message.content,
-                }
+        except Exception as exc:
+            logger.warning(
+                "Memory update failed, continuing without it: %s",
+                type(exc).__name__,
             )
+            await self.session.rollback()
+            return False
 
-        # 6. Karakterin cevabını üret
-
-        # 6. Kullanıcının uzun süreli hafızalarını getir
-        # 7. Yaln?zca mevcut karakterin haf?zalar?n? getir
-        character_memory_service = CharacterMemoryService(self.session)
-
-        memories = await character_memory_service.get_memories(
-            user_id=user_id,
-            character_id=character.id,
-            limit=10,
-        )
-
-        # 8. Konu?ma ?zetini karakterin ba?lam?na ekle
-        # Prefer the platform-managed YAML definition when it exists.
-        # During migration, characters without YAML keep using their DB fields.
-        prompt_character = self.character_definition_loader.load(character.slug)
-        if prompt_character is None:
-            prompt_character = character
-
-        system_prompt = self.prompt_builder.build(
-            character=prompt_character,
-            memories=memories,
-            summary=conversation.summary,
-        )
-
-        #    8. Karakterin cevabını üret
-        ai_response = await self.ai_provider.generate_response(
-            system_prompt=system_prompt,
-            messages=ai_messages,
-        )
-
-        # 7. Karakter cevabını kaydet
-        character_message = Message(
-            conversation_id=conversation.id,
-            sender_type="character",
-            sender_character_id=character.id,
-            content=ai_response,
-            message_type="text",
-        )
-
-        self.session.add(character_message)
-        await self.session.commit()
-
-        # Konuşma özetini kontrol et ve gerekiyorsa güncelle
-        await self.update_conversation_summary(conversation)
-
-        return character_message
-
-    async def get_conversation_history(
-        self,
-        conversation_id,
-        user_id,
-    ):
-        # 1. Konuşmanın kullanıcıya ait olduğunu doğrula
-        result = await self.session.execute(
-            select(Conversation).where(
-                Conversation.id == conversation_id,
-                Conversation.user_id == user_id,
+    async def _generate_reply(self, system_prompt, ai_messages) -> str:
+        try:
+            reply = await self.ai_provider.generate_response(
+                system_prompt=system_prompt,
+                messages=ai_messages,
             )
-        )
+        except Exception as exc:
+            logger.error(
+                "AI provider call failed: %s", type(exc).__name__, exc_info=True
+            )
+            raise AIResponseError("AI provider could not generate a reply.") from exc
 
-        conversation = result.scalar_one_or_none()
+        reply = (reply or "").strip()
 
-        if conversation is None:
-            raise ValueError("Konuşma bulunamadı.")
+        if not reply:
+            logger.error("AI provider returned an empty reply.")
+            raise AIResponseError("AI provider returned an empty reply.")
 
-        # 2. Mesajları eskiden yeniye sırala
-        messages_result = await self.session.execute(
-            select(Message)
-            .where(Message.conversation_id == conversation_id)
-            .order_by(Message.created_at, Message.id)
-        )
-
-        return messages_result.scalars().all()
+        return reply

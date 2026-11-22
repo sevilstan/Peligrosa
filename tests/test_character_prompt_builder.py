@@ -207,6 +207,35 @@ def test_structured_yaml_personality_is_rendered_as_readable_sections():
 
     prompt = builder.build(character)
 
-    assert "Core Traits: Esprili; Meraklı" in prompt
-    assert "Speech Style: Doğal konuşur" in prompt
-    assert "Emotional Tendencies: Kolay güvenmez" in prompt
+    assert "Core Traits:\n- Esprili\n- Meraklı" in prompt
+    assert "Speech Style:\n- Doğal konuşur" in prompt
+    assert "Emotional Tendencies:\n- Kolay güvenmez" in prompt
+
+
+def test_structured_personality_items_keep_their_own_punctuation_and_lines():
+    character = make_character()
+    character.personality = {
+        "core_traits": ("Kuru espri yapar.", "Meraklıdır; sorular sorar."),
+        "example_replies": ('"Hm. Anlat bakalım."',),
+    }
+
+    prompt = builder.build(character)
+
+    # Items must never be glued together on one line.
+    assert "- Kuru espri yapar.\n- Meraklıdır; sorular sorar." in prompt
+    assert 'Example Replies:\n- "Hm. Anlat bakalım."' in prompt
+    assert ".;" not in prompt
+
+
+def test_structured_personality_skips_empty_sections_and_items():
+    character = make_character()
+    character.personality = {
+        "core_traits": ("Esprili", "  "),
+        "likes": (),
+    }
+
+    prompt = builder.build(character)
+
+    assert "Core Traits:\n- Esprili" in prompt
+    assert "Likes" not in prompt
+    assert "-  " not in prompt
