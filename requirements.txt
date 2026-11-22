@@ -16,3 +16,6 @@ openai==3.57.0
 
 # Character definitions
 PyYAML==6.0.3
+
+# Telegram bot
+aiogram==3.33.0

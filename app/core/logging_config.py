@@ -4,7 +4,7 @@ from app.core.config import settings
 
 # Libraries that log request details at DEBUG/INFO (URLs, response headers
 # with cookies, connection internals). Never useful here, so always quiet.
-_NOISY_LIBRARIES = ("httpx", "httpcore", "openai", "asyncio")
+_NOISY_LIBRARIES = ("httpx", "httpcore", "openai", "asyncio", "aiohttp")
 
 
 def setup_logging() -> None:
