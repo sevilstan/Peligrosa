@@ -91,13 +91,16 @@ class CharacterPromptBuilder:
         if isinstance(personality, str):
             formatted = personality.strip()
         elif isinstance(personality, Mapping):
+            # One block per section, one bullet per item, so long character
+            # files stay readable for the model (and for humans debugging).
             sections = []
             for section, items in personality.items():
                 values = [str(item).strip() for item in items if str(item).strip()]
                 if values:
                     label = str(section).replace("_", " ").title()
-                    sections.append(f"{label}: " + "; ".join(values))
-            formatted = "\n".join(sections)
+                    bullets = "\n".join(f"- {value}" for value in values)
+                    sections.append(f"{label}:\n{bullets}")
+            formatted = "\n\n".join(sections)
         else:
             formatted = ""
 

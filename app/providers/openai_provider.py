@@ -7,7 +7,16 @@ from app.providers.base import AIProvider
 class OpenAIProvider(AIProvider):
 
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        if not settings.OPENAI_API_KEY:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set. Add it to your .env file."
+            )
+
+        self.client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=settings.AI_REQUEST_TIMEOUT_SECONDS,
+            max_retries=settings.AI_MAX_RETRIES,
+        )
 
     async def generate_response(
         self,
