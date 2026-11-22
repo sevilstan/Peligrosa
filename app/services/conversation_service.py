@@ -11,6 +11,7 @@ from app.models.conversation import Conversation
 from app.models.conversation_participant import ConversationParticipant
 from app.services.conversation_summarizer import ConversationSummarizer
 from app.services.character_prompt_builder import CharacterPromptBuilder
+from app.services.character_definition_loader import CharacterDefinitionLoader
 from app.providers.groq_provider import GroqProvider
 
 
@@ -21,6 +22,7 @@ class ConversationService:
         self.summarizer = ConversationSummarizer(ai_provider=self.ai_provider)
         self.memory_extractor = MemoryExtractor(ai_provider=self.ai_provider)
         self.prompt_builder = CharacterPromptBuilder()
+        self.character_definition_loader = CharacterDefinitionLoader()
 
     async def create_conversation(
         self,
@@ -249,8 +251,14 @@ class ConversationService:
         )
 
         # 8. Konu?ma ?zetini karakterin ba?lam?na ekle
+        # Prefer the platform-managed YAML definition when it exists.
+        # During migration, characters without YAML keep using their DB fields.
+        prompt_character = self.character_definition_loader.load(character.slug)
+        if prompt_character is None:
+            prompt_character = character
+
         system_prompt = self.prompt_builder.build(
-            character=character,
+            character=prompt_character,
             memories=memories,
             summary=conversation.summary,
         )
