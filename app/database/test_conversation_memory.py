@@ -41,6 +41,11 @@ class FakeAIProvider:
             }
             """
 
+        # The summarizer also calls this provider after the character's
+        # reply. Do not let it overwrite the character prompt we assert on.
+        if "long-term conversation memory manager" in system_prompt.lower():
+            return "Test summary."
+
         self.last_system_prompt = system_prompt
         return "Seni dinliyorum. Bunu hatırlayacağım."
 
