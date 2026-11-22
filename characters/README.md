@@ -47,3 +47,27 @@ we can remove that compatibility fallback in a separate change.
 Definitions are loaded with PyYAML's `safe_load`. Do not use YAML tags that
 construct Python objects. A malformed existing YAML file raises an error
 instead of silently falling back to database values.
+
+
+## Export existing characters
+
+To create the first YAML files from the character rows already in your local
+PostgreSQL database, run this from the project root:
+
+```powershell
+python -m scripts.export_characters_to_yaml
+```
+
+The exporter includes every existing character and never overwrites a YAML
+file by default. Review the generated files and enrich the structured
+personality sections afterward.
+
+Only use `--overwrite` if you intentionally want current database values to
+replace existing YAML definitions:
+
+```powershell
+python -m scripts.export_characters_to_yaml --overwrite
+```
+
+Do not run the overwrite option after manually improving a YAML personality
+unless you intend to discard those edits.
