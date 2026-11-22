@@ -4,6 +4,7 @@ Run from the project root:
     python -m scripts.chat_cli --character elena
     python -m scripts.chat_cli --character elena --new
     python -m scripts.chat_cli --character elena --provider openai
+    python -m scripts.chat_cli --character elena --model llama-3.3-70b-versatile
 
 This uses the real conversation pipeline (YAML personality, long-term
 memory, summaries) against the database in DATABASE_URL and calls the real
@@ -45,6 +46,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--provider", choices=["groq", "openai"], default="groq", help="AI provider"
     )
     parser.add_argument(
+        "--model",
+        default=None,
+        help="model ID to use instead of GROQ_MODEL / OPENAI_MODEL from .env",
+    )
+    parser.add_argument(
         "--new", action="store_true", help="start a new conversation instead of resuming"
     )
     parser.add_argument("--user-email", default=DEFAULT_USER_EMAIL, help="local test user")
@@ -52,15 +58,15 @@ def parse_args(argv=None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def create_provider(name: str):
+def create_provider(name: str, model: str | None = None):
     if name == "openai":
         from app.providers.openai_provider import OpenAIProvider
 
-        return OpenAIProvider()
+        return OpenAIProvider(model=model)
 
     from app.providers.groq_provider import GroqProvider
 
-    return GroqProvider()
+    return GroqProvider(model=model)
 
 
 async def get_or_create_user(session, email: str, language: str) -> User:
@@ -151,7 +157,7 @@ async def run_chat(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        provider = create_provider(args.provider)
+        provider = create_provider(args.provider, args.model)
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1
@@ -182,6 +188,9 @@ async def run_chat(args: argparse.Namespace) -> int:
             print(f"Sohbet devam ediyor: {character_name}")
 
         conversation_id = conversation.id
+        # Fakes used in tests have no .model; real providers always do.
+        model_name = getattr(provider, "model", "?")
+        print(f"Model: {args.provider} / {model_name}")
         print("Komutlar: /memory /prompt /history /exit\n")
 
         while True:

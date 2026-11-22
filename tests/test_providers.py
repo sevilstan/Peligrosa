@@ -43,3 +43,65 @@ def test_error_for_missing_key_never_contains_a_key_value(monkeypatch):
         GroqProvider()
 
     assert "gsk_" not in str(error.value)
+
+
+def _reply_stub(captured, result):
+    async def create(**kwargs):
+        captured.update(kwargs)
+        return result
+
+    return create
+
+
+def test_groq_provider_uses_explicit_model_then_falls_back_to_settings(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "test-key-not-real")
+    monkeypatch.setattr(settings, "GROQ_MODEL", "env-model")
+    answer = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="hi"))]
+    )
+
+    for explicit, expected in [("override-model", "override-model"), (None, "env-model")]:
+        captured = {}
+        provider = GroqProvider(model=explicit)
+        provider.client.chat.completions.create = _reply_stub(captured, answer)
+
+        reply = asyncio.run(provider.generate_response("system", [{"role": "user", "content": "x"}]))
+
+        assert reply == "hi"
+        assert captured["model"] == expected
+
+
+def test_openai_provider_uses_explicit_model_then_falls_back_to_settings(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key-not-real")
+    monkeypatch.setattr(settings, "OPENAI_MODEL", "env-model")
+    answer = SimpleNamespace(output_text="hi")
+
+    for explicit, expected in [("override-model", "override-model"), (None, "env-model")]:
+        captured = {}
+        provider = OpenAIProvider(model=explicit)
+        provider.client.responses.create = _reply_stub(captured, answer)
+
+        reply = asyncio.run(provider.generate_response("system", [{"role": "user", "content": "x"}]))
+
+        assert reply == "hi"
+        assert captured["model"] == expected
+
+
+def test_groq_provider_turns_a_missing_reply_into_an_empty_string(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "test-key-not-real")
+    answer = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=None))]
+    )
+    provider = GroqProvider()
+    provider.client.chat.completions.create = _reply_stub({}, answer)
+
+    assert asyncio.run(provider.generate_response("system", [])) == ""

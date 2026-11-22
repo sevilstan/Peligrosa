@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "openai/gpt-oss-20b"
 
+    # Print every SQL statement. Off by default and independent of DEBUG:
+    # statements carry parameters, which include users' message text.
+    SQL_ECHO: bool = False
+
     # Applies to every AI provider call (chat replies, summaries, memory
     # extraction). A slow provider must not hang a conversation forever.
     AI_REQUEST_TIMEOUT_SECONDS: float = 30.0

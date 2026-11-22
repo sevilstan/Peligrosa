@@ -77,6 +77,10 @@ Do not include:
 - Technical debugging details unless they are relevant
   to the ongoing conversation.
 - Temporary details with no future relevance.
+- The assistant's refusals, apologies and statements about
+  being an AI, about its limitations or about policies.
+  These are not facts about the user or the relationship,
+  and recording them would make the character repeat them.
 
 Do not mention that nothing important happened.
 Simply leave irrelevant conversations out of the summary.
@@ -133,8 +137,12 @@ OUTPUT REQUIREMENTS
 - Be concise but informative.
 - Prioritize information useful in future conversations.
 - Write naturally, not like a database log.
-- Use the same language as the conversation.
-- Prefer Turkish when the conversation is primarily Turkish.
+- Write the summary in the language the USER writes in
+  (see the USER lines), even if these instructions or the
+  existing summary are in another language. If the user
+  switched languages, use the language of their latest messages.
+- Plain text only: no markdown, no headings, no bold text,
+  no bullet symbols. Short natural paragraphs.
 - Keep real-life user information separate from fictional
   character and roleplay context.
 - Do not invent information.
@@ -161,6 +169,13 @@ Return ONLY the updated summary as plain text.
             conversation_context += (
                 f"{role.upper()}: {content}\n"
             )
+
+        # Repeated here, next to the data, because models follow the last
+        # instruction they read far more reliably than one in a long prompt.
+        conversation_context += (
+            "\nWrite the updated summary as plain text, in the same "
+            "language as the USER lines above."
+        )
 
         response = await self.ai_provider.generate_response(
             system_prompt=system_prompt,
