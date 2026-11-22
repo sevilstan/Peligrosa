@@ -5,7 +5,7 @@ import pytest
 from app.core import logging_config
 from app.core.config import settings
 
-LOGGERS = ["", "httpx", "httpcore", "openai", "asyncio", "sqlalchemy.engine"]
+LOGGERS = ["", "httpx", "httpcore", "openai", "asyncio", "aiohttp", "sqlalchemy.engine"]
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +28,7 @@ def test_debug_does_not_turn_on_sql_or_library_noise(monkeypatch):
 
     assert level("") == logging.DEBUG
     assert level("sqlalchemy.engine") == logging.WARNING
-    for name in ("httpx", "httpcore", "openai", "asyncio"):
+    for name in ("httpx", "httpcore", "openai", "asyncio", "aiohttp"):
         assert level(name) == logging.WARNING
 
 
