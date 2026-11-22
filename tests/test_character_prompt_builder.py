@@ -195,3 +195,18 @@ def test_different_characters_get_different_personalities():
     assert elena.personality not in natalie_prompt
     assert natalie.personality in natalie_prompt
     assert natalie.personality not in elena_prompt
+
+
+def test_structured_yaml_personality_is_rendered_as_readable_sections():
+    character = make_character()
+    character.personality = {
+        "core_traits": ("Esprili", "Meraklı"),
+        "speech_style": ("Doğal konuşur",),
+        "emotional_tendencies": ("Kolay güvenmez",),
+    }
+
+    prompt = builder.build(character)
+
+    assert "Core Traits: Esprili; Meraklı" in prompt
+    assert "Speech Style: Doğal konuşur" in prompt
+    assert "Emotional Tendencies: Kolay güvenmez" in prompt

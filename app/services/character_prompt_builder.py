@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 
 class CharacterPromptBuilder:
@@ -49,6 +49,7 @@ class CharacterPromptBuilder:
         """Return the full system prompt.
 
         character: object with name, description, personality, system_prompt.
+                   personality may be legacy free text or structured YAML data.
         memories:  this character's memories about the current user
                    (objects with category and content).
         summary:   the conversation summary, if any.
@@ -85,12 +86,25 @@ class CharacterPromptBuilder:
         return "CHARACTER IDENTITY\n" + "\n".join(lines)
 
     def _personality(self, character) -> str:
-        personality = self._clean(character.personality)
+        personality = character.personality
 
-        if not personality:
+        if isinstance(personality, str):
+            formatted = personality.strip()
+        elif isinstance(personality, Mapping):
+            sections = []
+            for section, items in personality.items():
+                values = [str(item).strip() for item in items if str(item).strip()]
+                if values:
+                    label = str(section).replace("_", " ").title()
+                    sections.append(f"{label}: " + "; ".join(values))
+            formatted = "\n".join(sections)
+        else:
+            formatted = ""
+
+        if not formatted:
             return ""
 
-        return f"PERSONALITY\n{personality}"
+        return f"PERSONALITY\n{formatted}"
 
     def _rules(self, character) -> str:
         system_prompt = self._clean(character.system_prompt)
