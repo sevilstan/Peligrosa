@@ -124,9 +124,9 @@ Silence is a valid result. The director must not default to "everyone speaks".
 
 ### 3.2 Budgets and caps (configuration, not hard-coded)
 
-- max characters speaking per user message: **2** (default), absolute 3;
+- max characters speaking per user message: the **group size** (up to 4), per D2 in section 7 (earlier proposal: 2);
 - max follow-up hops: **1**;
-- max total character messages per user message: **3**;
+- max total character messages per user message: a configurable safety cap (proposal: 6, including the follow-up hop);
 - per-turn timeout; if the budget is hit the turn ends gracefully.
 
 ### 3.3 Group context for a character's prompt
@@ -199,16 +199,29 @@ Osman cross-group example.
 
 ---
 
-## 7. Open decisions for the product owner
+## 7. Decisions
 
-- **D1 Privacy across rooms.** May a character mention in a group something the
-  user told it privately in a direct chat? Proposal: not by default (prompt rule
-  + provenance), unless the user shared it in a group.
-- **D2 Default number of speakers** (proposal 2) and whether users can tune
-  "chattiness" per group.
-- **D3 Model choice per role** (director / extraction / voices) and the point
-  at which we leave the free tier.
-- **D4 Telegram presentation**: name prefix in one bot (proposal) vs. several
-  bots (one per character: more natural, much more setup).
-- **D5 Relationship visibility**: do users see trust/affection values, or only
-  feel them in behaviour?
+Decided by the product owner (2026-11-24):
+
+- **D1 Privacy across rooms: depends on the character.** There is no global
+  rule. Whether a character mentions in a group something told to it privately
+  is part of its personality (discreet vs. gossipy), expressed in its character
+  definition and prompt. Provenance (`source_kind`) is recorded so this can be
+  applied and inspected.
+- **D2 Speakers: natural.** No fixed number of speakers: a character speaks if
+  it has something to say at that moment; groups hold up to **4** characters.
+  Replaces the "2 speakers" default in 3.2: the per-turn reply cap equals the
+  group size, and a total-message safety cap (including the follow-up hop)
+  stays as a cost guard, configurable.
+- **D3 Model choice per role:** postponed; stay on the free tier for now.
+- **D4 Telegram presentation: one bot**, each message prefixed with the
+  character's name.
+- **D5 Relationship visibility: behaviour only.** Trust/affection and other
+  values are never shown to the user; they only shape how characters act.
+
+## 8. Progress
+
+- **A. Memory foundation: implemented** (PR "Memory foundation"): `event` and
+  `relationship` categories, provenance columns, relevance-aware recall
+  (half the memory budget always goes to the most important memories, the rest
+  to memories matching the recent conversation topic), same prompt size.

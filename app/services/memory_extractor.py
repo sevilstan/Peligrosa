@@ -13,6 +13,8 @@ class MemoryExtractor:
         "personal",
         "goal",
         "hobby",
+        "event",
+        "relationship",
     }
 
     ALLOWED_OPERATIONS = {
@@ -171,6 +173,19 @@ ALLOWED CATEGORIES:
 - personal
 - goal
 - hobby
+- event: a SIGNIFICANT thing that happened in the user's life or to
+  someone close to them, stated by the user (a new job, a move, an exam
+  result, a breakup, a birth). Not daily routines, plans or moods.
+- relationship: an important person in the user's life and who they are
+  to the user ("Osman is my brother", "my manager Aylin").
+
+Examples for the new categories:
+
+"Osman got a new job last week."
+memory_key: event_osman_new_job, category: event
+
+"Osman is my older brother."
+memory_key: relationship_osman, category: relationship
 
 STRICT RULES:
 
@@ -178,6 +193,8 @@ STRICT RULES:
 2. Save only stable information useful in future conversations.
 3. Do not save temporary intentions, moods, activities or situations.
 4. Weather, daily plans and momentary feelings are NOT memories.
+   (Significant life events and important people ARE: see the event
+   and relationship categories.)
 5. Do not convert a temporary intention into a permanent preference.
 6. Do not invent or infer personal information.
 7. Ignore fictional roleplay statements and fictional character facts.
