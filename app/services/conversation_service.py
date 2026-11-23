@@ -182,7 +182,9 @@ class ConversationService:
         )
         await self.session.commit()
 
-        memories_ok = await self._update_memories(user_id, character, content)
+        memories_ok = await self._update_memories(
+            user_id, character, content, conversation_id=conversation_id
+        )
 
         if not memories_ok:
             # The rollback inside _update_memories expired our ORM objects.
@@ -207,10 +209,16 @@ class ConversationService:
             for message in unsummarized[-RECENT_MESSAGE_LIMIT:]
         ]
 
+        # What is being talked about decides which memories are recalled.
+        recent_user_text = " ".join(
+            m["content"] for m in ai_messages if m["role"] == "user"
+        )
+
         system_prompt = await self.build_system_prompt(
             conversation=conversation,
             character=character,
             user_id=user_id,
+            context_text=recent_user_text[-1500:],
         )
 
         reply = await self._generate_reply(system_prompt, ai_messages)
@@ -246,15 +254,19 @@ class ConversationService:
         conversation: Conversation,
         character: Character,
         user_id,
+        context_text: str | None = None,
     ) -> str:
         """Build the system prompt the character would use right now.
 
         Memories are always loaded with user_id AND character_id so a
         character never sees another character's (or user's) memories.
+        context_text (what is being talked about) lets relevant memories in
+        beyond the most important ones; without it the top memories are used.
         """
-        memories = await CharacterMemoryService(self.session).get_memories(
+        memories = await CharacterMemoryService(self.session).get_relevant_memories(
             user_id=user_id,
             character_id=character.id,
+            context_text=context_text,
             limit=MEMORY_LIMIT,
         )
 
@@ -320,7 +332,9 @@ class ConversationService:
 
         return conversation, conversation.participants[0].character
 
-    async def _update_memories(self, user_id, character, content) -> bool:
+    async def _update_memories(
+        self, user_id, character, content, conversation_id=None
+    ) -> bool:
         """Extract and store this character's memories from the user message.
 
         Memory is secondary to the conversation, so a failure here is logged
@@ -364,6 +378,8 @@ class ConversationService:
                         importance=memory["importance"],
                         confidence=memory["confidence"],
                         memory_key=memory_key,
+                        source_conversation_id=conversation_id,
+                        source_kind="direct",
                     )
 
                     logger.info("Memory saved or updated: %s", memory_key)

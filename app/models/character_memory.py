@@ -30,6 +30,10 @@ class CharacterMemory(Base):
             "confidence >= 0 AND confidence <= 1",
             name="ck_character_memory_confidence",
         ),
+        CheckConstraint(
+            "source_kind IS NULL OR source_kind IN ('direct', 'group')",
+            name="ck_character_memory_source_kind",
+        ),
         UniqueConstraint(
             "user_id",
             "character_id",
@@ -90,6 +94,20 @@ class CharacterMemory(Base):
         Float,
         default=0.8,
         nullable=False,
+    )
+
+    # Where the character learned this. Memory itself never belongs to a
+    # conversation (it is per user + character); this is only provenance, for
+    # privacy decisions and debugging. SET NULL: deleting a chat keeps the memory.
+    source_conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    source_kind: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

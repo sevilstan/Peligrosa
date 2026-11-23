@@ -169,12 +169,18 @@
 | `created_at` | `TIMESTAMP` | False | `now()` |
 | `updated_at` | `TIMESTAMP` | False | `now()` |
 | `memory_key` | `VARCHAR(100)` | True | `None` |
+| `source_conversation_id` | `UUID` | True | `None` |
+| `source_kind` | `VARCHAR(20)` | True | `None` |
+
+Provenance only (where the character learned it): memories stay per user + character, never per conversation. `source_conversation_id` is `ON DELETE SET NULL`, so deleting a chat keeps the memory. Categories in use: interest, preference, personal, goal, hobby, event, relationship (free text, no DB check).
 
 **Primary Key:** `['id']`
 
 **Foreign Key:** `['character_id']` -> `characters.['id']`
 
 **Foreign Key:** `['user_id']` -> `users.['id']`
+
+**Foreign Key:** `['source_conversation_id']` -> `conversations.['id']` (ON DELETE SET NULL)
 
 **Unique:** `['user_id', 'character_id', 'category', 'content']`
 
@@ -183,6 +189,8 @@
 **Check:** `ck_character_memory_confidence` - `confidence >= 0::double precision AND confidence <= 1::double precision`
 
 **Check:** `ck_character_memory_importance` - `importance >= 1 AND importance <= 10`
+
+**Check:** `ck_character_memory_source_kind` - `source_kind IS NULL OR source_kind IN ('direct', 'group')`
 
 **Index:** `ix_character_memories_character_id` - `['character_id']`
 
