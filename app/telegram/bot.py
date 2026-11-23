@@ -19,6 +19,7 @@ _COMMANDS = (
     ("start", "cmd_start"),
     ("characters", "cmd_characters"),
     ("chats", "cmd_chats"),
+    ("history", "cmd_history"),
     ("new", "cmd_new"),
 )
 
