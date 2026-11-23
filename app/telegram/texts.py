@@ -40,6 +40,24 @@ TEXTS: dict[str, dict[str, str]] = {
         "group_soon": "Group conversations are almost ready: the characters can't answer in groups just yet.",
         "new_chat_in_group": "Use /newgroup to create another group, or pick a character to chat with.",
         "cmd_newgroup": "Create a group",
+        "btn_delete": "🗑 Delete {name}",
+        "btn_delete_yes": "🗑 Yes, delete",
+        "delete_confirm": (
+            "<b>Delete {name}?</b>\n\nThis permanently removes:\n"
+            "• Chats with {name}: {chats}\n"
+            "• Things {name} remembers about you: {memories}\n"
+            "• Groups with {name}: {groups} ({name} leaves them; groups left with "
+            "fewer than 2 characters are deleted: {groups_deleted})\n\n"
+            "This cannot be undone. You can always start fresh with {name} later."
+        ),
+        "delete_done": (
+            "<b>{name}</b> was deleted.\nChats: {chats} · Memories: {memories} · "
+            "Groups left: {groups} (deleted: {groups_deleted})"
+        ),
+        "delete_cancelled": "Nothing was deleted.",
+        "delete_nothing": "There is nothing to delete for {name}.",
+        "delete_pick": "Open a chat with a character first, then use /delete.",
+        "cmd_delete": "Delete the current character",
         "btn_history": "📜 History",
         "btn_older": "‹ Older",
         "btn_newer": "Newer ›",
@@ -93,6 +111,24 @@ TEXTS: dict[str, dict[str, str]] = {
         "group_soon": "Grup sohbetleri neredeyse hazır: karakterler gruplarda henüz cevap veremiyor.",
         "new_chat_in_group": "Başka bir grup için /newgroup yaz, ya da sohbet etmek için bir karakter seç.",
         "cmd_newgroup": "Grup oluştur",
+        "btn_delete": "🗑 {name} kişisini sil",
+        "btn_delete_yes": "🗑 Evet, sil",
+        "delete_confirm": (
+            "<b>{name} silinsin mi?</b>\n\nKalıcı olarak silinecekler:\n"
+            "• {name} ile sohbetler: {chats}\n"
+            "• {name} kişisinin senin hakkında hatırladıkları: {memories}\n"
+            "• {name} olan gruplar: {groups} ({name} gruplardan çıkar; 2'den az "
+            "karakteri kalan gruplar silinir: {groups_deleted})\n\n"
+            "Bu geri alınamaz. {name} ile daha sonra baştan başlayabilirsin."
+        ),
+        "delete_done": (
+            "<b>{name}</b> silindi.\nSohbet: {chats} · Hafıza: {memories} · "
+            "Çıkarıldığı grup: {groups} (silinen: {groups_deleted})"
+        ),
+        "delete_cancelled": "Hiçbir şey silinmedi.",
+        "delete_nothing": "{name} için silinecek bir şey yok.",
+        "delete_pick": "Önce bir karakterle sohbet aç, sonra /delete kullan.",
+        "cmd_delete": "Mevcut karakteri sil",
         "btn_history": "📜 Geçmiş",
         "btn_older": "‹ Eski",
         "btn_newer": "Yeni ›",
