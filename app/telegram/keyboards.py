@@ -20,6 +20,9 @@ OPEN_PREFIX = "open:"
 NEW_PREFIX = "new:"
 CHAT_PREFIX = "chat:"
 CHATS_PAGE_PREFIX = "chats:"
+DELETE_PREFIX = "del:"
+DELETE_CONFIRM_PREFIX = "delok:"
+DELETE_CANCEL = "delno"
 GROUP_NEW = "gnew"
 GROUP_SELECT_PREFIX = "gsel:"
 GROUP_PAGE_PREFIX = "gpage:"
@@ -108,6 +111,8 @@ def chat_actions_keyboard(
         )
     ]
 
+    rows = [row]
+
     new_data = f"{NEW_PREFIX}{character.slug}"
     if not is_group and _fits(new_data):
         row.append(
@@ -116,7 +121,32 @@ def chat_actions_keyboard(
                 callback_data=new_data,
             )
         )
-    return InlineKeyboardMarkup(inline_keyboard=[row])
+
+    delete_data = f"{DELETE_PREFIX}{character.slug}"
+    if not is_group and _fits(delete_data):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=t(language, "btn_delete", name=character.name),
+                    callback_data=delete_data,
+                )
+            ]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def delete_confirm_keyboard(slug: str, language: str | None) -> InlineKeyboardMarkup | None:
+    data = f"{DELETE_CONFIRM_PREFIX}{slug}"
+    if not _fits(data):
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t(language, "btn_delete_yes"), callback_data=data),
+                InlineKeyboardButton(text=t(language, "btn_cancel"), callback_data=DELETE_CANCEL),
+            ]
+        ]
+    )
 
 
 def _page_navigation(
