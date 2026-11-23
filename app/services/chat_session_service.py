@@ -14,7 +14,8 @@ from app.services.character_gallery_service import (
 )
 from app.services.conversation_service import ConversationService
 
-CHAT_LIST_LIMIT = 10
+CHAT_PAGE_SIZE = 5
+HISTORY_PAGE_SIZE = 8
 
 
 class ChatNotAvailableError(Exception):
@@ -35,6 +36,27 @@ class ChatSummary:
     character: GalleryCharacter
     created_at: object
     is_active: bool
+
+
+@dataclass(frozen=True)
+class ChatListPage:
+    items: list[ChatSummary]
+    page: int  # zero-based, clamped into range
+    total_pages: int
+
+
+@dataclass(frozen=True)
+class HistoryMessage:
+    from_user: bool
+    content: str
+
+
+@dataclass(frozen=True)
+class HistoryPage:
+    character: GalleryCharacter
+    messages: list[HistoryMessage]  # oldest first within the page
+    page: int  # 0 = the newest messages
+    total_pages: int
 
 
 class ChatSessionService:
@@ -105,22 +127,88 @@ class ChatSessionService:
         conversation, character = row
         return ChatContext(conversation.id, self.gallery.present(character), False)
 
-    async def list_chats(self, user_id, limit: int = CHAT_LIST_LIMIT) -> list[ChatSummary]:
+    async def list_chats(
+        self, user_id, page: int = 0, page_size: int = CHAT_PAGE_SIZE
+    ) -> ChatListPage:
+        """The user's chats, the active one first. Pages are clamped."""
+        total = (
+            await self.session.execute(
+                select(func.count()).select_from(self._direct_conversations(user_id).subquery())
+            )
+        ).scalar_one()
+
+        total_pages = max(1, -(-total // page_size))
+        page = min(max(page, 0), total_pages - 1)
+
         rows = (
             await self.session.execute(
-                self._direct_conversations(user_id).limit(limit)
+                self._direct_conversations(user_id).limit(page_size).offset(page * page_size)
             )
         ).all()
 
-        return [
-            ChatSummary(
-                conversation_id=conversation.id,
-                character=self.gallery.present(character),
-                created_at=conversation.created_at,
-                is_active=index == 0,
+        return ChatListPage(
+            items=[
+                ChatSummary(
+                    conversation_id=conversation.id,
+                    character=self.gallery.present(character),
+                    created_at=conversation.created_at,
+                    is_active=page == 0 and index == 0,
+                )
+                for index, (conversation, character) in enumerate(rows)
+            ],
+            page=page,
+            total_pages=total_pages,
+        )
+
+    async def get_history(
+        self,
+        user_id,
+        conversation_id,
+        page: int = 0,
+        page_size: int = HISTORY_PAGE_SIZE,
+    ) -> HistoryPage:
+        """Messages of one of the user's chats; page 0 is the newest."""
+        row = (
+            await self.session.execute(
+                self._direct_conversations(user_id).where(Conversation.id == conversation_id)
             )
-            for index, (conversation, character) in enumerate(rows)
-        ]
+        ).first()
+
+        if row is None:
+            raise ChatNotAvailableError()
+
+        _, character = row
+
+        total = (
+            await self.session.execute(
+                select(func.count())
+                .select_from(Message)
+                .where(Message.conversation_id == conversation_id)
+            )
+        ).scalar_one()
+
+        total_pages = max(1, -(-total // page_size))
+        page = min(max(page, 0), total_pages - 1)
+
+        messages = (
+            await self.session.execute(
+                select(Message)
+                .where(Message.conversation_id == conversation_id)
+                .order_by(Message.created_at.desc(), Message.id.desc())
+                .limit(page_size)
+                .offset(page * page_size)
+            )
+        ).scalars().all()
+
+        return HistoryPage(
+            character=self.gallery.present(character),
+            messages=[
+                HistoryMessage(from_user=m.sender_type == "user", content=m.content)
+                for m in reversed(messages)
+            ],
+            page=page,
+            total_pages=total_pages,
+        )
 
     async def last_character_message(self, user_id, conversation_id) -> str | None:
         """Latest reply from the character, for a "where we left off" recap."""

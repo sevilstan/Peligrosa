@@ -87,11 +87,11 @@ def test_switch_and_list_chats_order_and_active_flag(run_db):
             service = ChatSessionService(s, ScriptedProvider())
             amy = await service.open_character_chat(uid, "amy")
             bob = await service.open_character_chat(uid, "bob")
-            assert [(c.character.slug, c.is_active) for c in await service.list_chats(uid)] == [
+            assert [(c.character.slug, c.is_active) for c in (await service.list_chats(uid)).items] == [
                 ("bob", True), ("amy", False)]
 
             await service.switch_to(uid, amy.conversation_id)
-            chats = await service.list_chats(uid)
+            chats = (await service.list_chats(uid)).items
 
         assert [(c.character.slug, c.is_active) for c in chats] == [("amy", True), ("bob", False)]
         assert chats[1].conversation_id == bob.conversation_id
@@ -109,7 +109,7 @@ def test_users_cannot_see_or_switch_to_each_others_chats(run_db):
             adas = await service.open_character_chat(ada, "amy")
             await service.open_character_chat(bea, "amy")
 
-            assert len(await service.list_chats(bea)) == 1
+            assert len((await service.list_chats(bea)).items) == 1
             assert (await service.get_active(bea)).conversation_id != adas.conversation_id
             with pytest.raises(ChatNotAvailableError):
                 await service.switch_to(bea, adas.conversation_id)
@@ -138,7 +138,7 @@ def test_inactive_characters_cannot_be_chatted_with_and_disappear_from_lists(run
             await s.commit()
 
             assert await service.get_active(uid) is None
-            assert await service.list_chats(uid) == []
+            assert (await service.list_chats(uid)).items == []
 
     run_db(scenario)
 
@@ -198,7 +198,8 @@ def test_open_button_then_text_gets_a_reply_and_is_saved(run_db, tmp_path):
 
         started, reply = bot.texts()
         assert "Amy" in started and t("en", "chat_new", name="Amy") == started
-        assert bot.callback_data(index=0) == ["new:amy"]
+        data = bot.callback_data(index=0)
+        assert data[0].startswith("hopen:") and data[1] == "new:amy"
         assert reply == "Hi Ada, I'm Amy!"
         assert "You are a test character." in provider.last_chat_prompt
 
@@ -424,5 +425,160 @@ def test_tr_user_gets_turkish_chat_texts(run_db, tmp_path):
         await bot.send(callback_update("open:amy", lang="tr"))
 
         assert bot.texts() == [t("tr", "chat_new", name="Amy")]
+
+    run_db(scenario)
+
+
+# ----------------------------------------------- paging and history (service)
+
+
+async def open_many(maker, uid, count, slug="amy"):
+    async with maker() as s:
+        service = ChatSessionService(s, ScriptedProvider())
+        ids = [(await service.open_character_chat(uid, slug)).conversation_id]
+        for _ in range(count - 1):
+            ids.append((await service.start_new_chat(uid, slug)).conversation_id)
+    return ids  # oldest first; the last one is active
+
+
+def test_chat_list_is_paged_with_the_active_chat_first(run_db):
+    async def scenario(maker):
+        await add_characters(maker, [("Amy", "amy", 0, True)])
+        uid = await make_user(maker)
+        ids = await open_many(maker, uid, 7)
+
+        async with maker() as s:
+            service = ChatSessionService(s, ScriptedProvider())
+            first = await service.list_chats(uid, 0, page_size=3)
+            second = await service.list_chats(uid, 1, page_size=3)
+            last = await service.list_chats(uid, 99, page_size=3)
+            negative = await service.list_chats(uid, -4, page_size=3)
+
+        assert (first.total_pages, first.page) == (3, 0)
+        assert [c.conversation_id for c in first.items] == ids[::-1][:3]
+        assert [c.is_active for c in first.items] == [True, False, False]
+        assert not any(c.is_active for c in second.items)
+        assert [c.conversation_id for c in second.items] == ids[::-1][3:6]
+        assert last.page == 2 and [c.conversation_id for c in last.items] == [ids[0]]
+        assert negative.page == 0
+
+    run_db(scenario)
+
+
+def test_history_pages_start_with_the_newest_and_read_oldest_first(run_db):
+    async def scenario(maker):
+        await add_characters(maker, [("Amy", "amy", 0, True)])
+        uid = await make_user(maker)
+        provider = ScriptedProvider(chat_reply="reply")
+        (cid,) = await open_many(maker, uid, 1)
+        async with maker() as s:
+            engine = ConversationService(s, ai_provider=provider)
+            for i in range(3):
+                await engine.send_message(cid, uid, f"u{i}")  # 6 messages
+
+        async with maker() as s:
+            service = ChatSessionService(s, provider)
+            newest = await service.get_history(uid, cid, 0, page_size=4)
+            older = await service.get_history(uid, cid, 1, page_size=4)
+            clamped = await service.get_history(uid, cid, 50, page_size=4)
+
+        assert newest.total_pages == 2
+        assert [(m.from_user, m.content) for m in newest.messages] == [
+            (True, "u1"), (False, "reply"), (True, "u2"), (False, "reply")]
+        assert [(m.from_user, m.content) for m in older.messages] == [(True, "u0"), (False, "reply")]
+        assert clamped.page == 1
+
+    run_db(scenario)
+
+
+def test_history_is_private_and_empty_chats_have_one_empty_page(run_db):
+    async def scenario(maker):
+        await add_characters(maker, [("Amy", "amy", 0, True)])
+        ada, bea = await make_user(maker, 1), await make_user(maker, 2)
+        (cid,) = await open_many(maker, ada, 1)
+
+        async with maker() as s:
+            service = ChatSessionService(s, ScriptedProvider())
+            empty = await service.get_history(ada, cid)
+            assert (empty.messages, empty.total_pages, empty.page) == ([], 1, 0)
+            with pytest.raises(ChatNotAvailableError):
+                await service.get_history(bea, cid)
+            with pytest.raises(ChatNotAvailableError):
+                await service.get_history(ada, uuid.uuid4())
+
+    run_db(scenario)
+
+
+# ------------------------------------------------------- paging and history (bot)
+
+
+def test_chats_list_has_page_buttons_that_edit_in_place(run_db, tmp_path):
+    async def scenario(maker):
+        bot = await seeded(maker, tmp_path)
+        uid = await make_user(maker)
+        await open_many(maker, uid, 7)
+
+        await bot.send(message_update("/chats"))
+        first = bot.callback_data()
+        assert first[-2:] == ["noop", "chats:1"] and len(first) == 5 + 2
+
+        await bot.send(callback_update("chats:1"))
+        edited = bot.session.named("EditMessageText")[0]
+        assert "(2/2)" in edited["text"]
+        assert "●" not in str(edited["reply_markup"])  # active chat is on page 1
+        assert bot.callback_data("EditMessageText")[-2:] == ["chats:0", "noop"]
+        for data in ("chats:abc", "chats:99999999999999999", "chats:"):
+            await bot.send(callback_update(data))
+
+    run_db(scenario)
+
+
+def test_history_button_menu_and_paging_in_the_bot(run_db, tmp_path):
+    async def scenario(maker):
+        provider = ScriptedProvider(chat_reply="Re <b>")
+        bot = await seeded(maker, tmp_path, provider)
+        await bot.send(callback_update("open:amy"))
+        hopen = bot.callback_data(index=0)[0]
+        for i in range(5):  # 10 messages -> 2 pages of 8
+            await bot.send(message_update(f"msg {i} <x>"))
+        bot.session.calls.clear()
+
+        await bot.send(callback_update(hopen))
+        shown = bot.session.named("SendMessage")[-1]
+        assert "(1/2)" in shown["text"]
+        assert "<b>You:</b> msg 4 &lt;x&gt;" in shown["text"]
+        assert "<b>Amy:</b> Re &lt;b&gt;" in shown["text"]
+        assert "<x>" not in shown["text"]
+        nav = [b["callback_data"] for row in shown["reply_markup"]["inline_keyboard"] for b in row]
+        assert nav[0].endswith(":1") and nav[1] == "noop" and len(nav) == 2  # only "older"
+
+        await bot.send(callback_update(nav[0]))  # older page, edited in place
+        edited = bot.session.named("EditMessageText")[-1]
+        assert "(2/2)" in edited["text"] and "msg 0" in edited["text"]
+
+        await bot.send(message_update(t("tr", "menu_history")))  # bottom-menu button
+        await bot.send(message_update("/history"))
+        assert "(1/2)" in bot.session.named("SendMessage")[-1]["text"]
+
+    run_db(scenario)
+
+
+def test_history_commands_without_a_chat_and_hostile_history_callbacks(run_db, tmp_path):
+    async def scenario(maker):
+        provider = ScriptedProvider()
+        bot = await seeded(maker, tmp_path, provider)
+        other = await make_user(maker, 2)
+        (foreign,) = await open_many(maker, other, 1)
+
+        await bot.send(message_update("/history"))
+        await bot.send(message_update(t("en", "menu_history")))
+        assert bot.texts() == [t("en", "no_active_chat")] * 2
+        assert provider.last_chat_prompt == ""  # menu text never reached the character
+
+        for data in ("hopen:nope", f"hopen:{foreign}", f"hist:{foreign}:0", "hist:", "hist:x:y"):
+            await bot.send(callback_update(data))
+        alerts = bot.session.named("AnswerCallbackQuery")
+        assert len(alerts) == 5 and all(a["show_alert"] for a in alerts)
+        assert bot.session.named("EditMessageText") == []
 
     run_db(scenario)

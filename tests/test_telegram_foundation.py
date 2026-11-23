@@ -93,7 +93,9 @@ def test_callback_data_never_exceeds_telegram_limit():
     markup = keyboards.slider_keyboard(GalleryPage([long_one], 0, 1), "en")
 
     assert _data(markup) == []
-    assert keyboards.new_chat_keyboard(long_one, "en") is None
+    import uuid
+    actions = keyboards.chat_actions_keyboard(long_one, uuid.uuid4(), "en")
+    assert [d[:6] for d in _data(actions)] == ["hopen:"]  # no "new chat" button
 
 
 def test_split_text_keeps_parts_within_the_limit():
@@ -303,7 +305,8 @@ def test_start_registers_user_shows_menu_and_first_slide(run_db, tmp_path):
         welcome, slide = bot.session.named("SendMessage")
         assert "Ada" in welcome["text"]
         menu = welcome["reply_markup"]["keyboard"][0]
-        assert [b["text"] for b in menu] == [t("en", "menu_characters"), t("en", "menu_chats")]
+        assert [b["text"] for b in menu] == [
+            t("en", "menu_characters"), t("en", "menu_chats"), t("en", "menu_history")]
         assert "Elena" in slide["text"] and "Natalie" not in slide["text"]
         assert bot.callback_data() == ["gallery:1", "noop", "gallery:1", "open:elena"]
 
