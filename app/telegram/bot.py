@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import settings
 from app.telegram.avatars import AvatarProvider
 from app.telegram.chat_utils import UserLocks
+from app.telegram.group_drafts import GroupDrafts
 from app.telegram.handlers import build_router
 from app.telegram.middlewares import ChatOrderMiddleware, DbSessionMiddleware, UserMiddleware
 from app.telegram.texts import TEXTS, resolve_language, t
@@ -21,6 +22,7 @@ _COMMANDS = (
     ("chats", "cmd_chats"),
     ("history", "cmd_history"),
     ("new", "cmd_new"),
+    ("newgroup", "cmd_newgroup"),
 )
 
 
@@ -40,6 +42,7 @@ def build_dispatcher(
     dispatcher = Dispatcher(
         provider=ai_provider,
         avatars=avatars or AvatarProvider(),
+        drafts=GroupDrafts(),
     )
 
     # Order matters: message ordering first (before any database work),

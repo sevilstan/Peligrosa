@@ -520,13 +520,13 @@ def test_chats_list_has_page_buttons_that_edit_in_place(run_db, tmp_path):
 
         await bot.send(message_update("/chats"))
         first = bot.callback_data()
-        assert first[-2:] == ["noop", "chats:1"] and len(first) == 5 + 2
+        assert first[-3:] == ["noop", "chats:1", "gnew"] and len(first) == 5 + 3
 
         await bot.send(callback_update("chats:1"))
         edited = bot.session.named("EditMessageText")[0]
         assert "(2/2)" in edited["text"]
         assert "●" not in str(edited["reply_markup"])  # active chat is on page 1
-        assert bot.callback_data("EditMessageText")[-2:] == ["chats:0", "noop"]
+        assert bot.callback_data("EditMessageText")[-3:] == ["chats:0", "noop", "gnew"]
         for data in ("chats:abc", "chats:99999999999999999", "chats:"):
             await bot.send(callback_update(data))
 
