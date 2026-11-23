@@ -9,6 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.services.character_gallery_service import CharacterGalleryService
+from app.services.character_removal_service import (
+    CharacterNotFoundError,
+    CharacterRemovalService,
+    RemovalSummary,
+)
 from app.services.chat_session_service import (
     GROUP_MAX_CHARACTERS,
     GROUP_MIN_CHARACTERS,
@@ -24,6 +29,9 @@ from app.telegram.chat_utils import edit_text_in_place, split_text, typing_indic
 from app.telegram.keyboards import (
     CHAT_PREFIX,
     CHATS_PAGE_PREFIX,
+    DELETE_CANCEL,
+    DELETE_CONFIRM_PREFIX,
+    DELETE_PREFIX,
     GALLERY_PREFIX,
     GROUP_CANCEL,
     GROUP_DONE,
@@ -37,6 +45,7 @@ from app.telegram.keyboards import (
     OPEN_PREFIX,
     chat_actions_keyboard,
     chats_keyboard,
+    delete_confirm_keyboard,
     group_picker_keyboard,
     history_keyboard,
     main_menu,
@@ -297,6 +306,88 @@ async def switch_chat(callback: CallbackQuery, session: AsyncSession, user: User
         await _announce_chat(callback.message, service, user, context)
 
 
+# -------------------------------------------------------------- deleting
+
+
+def _removal_numbers(summary: RemovalSummary) -> dict:
+    return {
+        "name": html.escape(summary.character.name),
+        "chats": summary.direct_chats,
+        "memories": summary.memories,
+        "groups": summary.groups,
+        "groups_deleted": summary.groups_deleted,
+    }
+
+
+async def _ask_to_delete(message: Message, session: AsyncSession, user: User, slug: str) -> str | None:
+    """Show what would be deleted and ask. Returns an alert text if not possible."""
+    language = user.language_code
+
+    try:
+        summary = await CharacterRemovalService(session).preview(user.id, slug)
+    except CharacterNotFoundError:
+        return t(language, "character_missing")
+
+    name = html.escape(summary.character.name)
+    markup = delete_confirm_keyboard(slug, language)
+    if summary.is_empty or markup is None:
+        return t(language, "delete_nothing", name=name)
+
+    await message.answer(
+        t(language, "delete_confirm", **_removal_numbers(summary)), reply_markup=markup
+    )
+    return None
+
+
+async def delete_ask(callback: CallbackQuery, session: AsyncSession, user: User) -> None:
+    slug = callback.data.removeprefix(DELETE_PREFIX)
+    if not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+
+    problem = await _ask_to_delete(callback.message, session, user, slug)
+    await callback.answer(problem, show_alert=bool(problem))
+
+
+async def delete_command(message: Message, session: AsyncSession, user: User, provider) -> None:
+    """/delete: the character of the active direct chat."""
+    language = user.language_code
+    active = await ChatSessionService(session, provider).get_active(user.id)
+
+    if active is None or active.is_group:
+        await message.answer(t(language, "delete_pick"))
+        return
+
+    problem = await _ask_to_delete(message, session, user, active.character.slug)
+    if problem:
+        await message.answer(problem)
+
+
+async def delete_confirm(callback: CallbackQuery, session: AsyncSession, user: User) -> None:
+    language = user.language_code
+    slug = callback.data.removeprefix(DELETE_CONFIRM_PREFIX)
+
+    try:
+        summary = await CharacterRemovalService(session).remove(user.id, slug)
+    except CharacterNotFoundError:
+        await callback.answer(t(language, "character_missing"), show_alert=True)
+        return
+
+    logger.info(
+        "User deleted a character: chats=%d memories=%d groups=%d",
+        summary.direct_chats, summary.memories, summary.groups,
+    )
+    await edit_text_in_place(
+        callback, t(language, "delete_done", **_removal_numbers(summary)), None
+    )
+    await callback.answer()
+
+
+async def delete_cancel(callback: CallbackQuery, user: User) -> None:
+    await edit_text_in_place(callback, t(user.language_code, "delete_cancelled"), None)
+    await callback.answer()
+
+
 # --------------------------------------------------------------- groups
 
 
@@ -473,6 +564,7 @@ def build_router() -> Router:
     router.message.register(history_command, F.text.in_(all_labels("menu_history")))
     router.message.register(new_chat_command, Command("new"))
     router.message.register(group_command, Command("newgroup"))
+    router.message.register(delete_command, Command("delete"))
     router.message.register(unknown_command, F.text.startswith("/"))
     router.message.register(chat_text, F.text)
     router.message.register(non_text)
@@ -484,6 +576,9 @@ def build_router() -> Router:
     router.callback_query.register(chats_page, F.data.startswith(CHATS_PAGE_PREFIX))
     router.callback_query.register(history_open, F.data.startswith(HISTORY_OPEN_PREFIX))
     router.callback_query.register(history_page, F.data.startswith(HISTORY_PAGE_PREFIX))
+    router.callback_query.register(delete_ask, F.data.startswith(DELETE_PREFIX))
+    router.callback_query.register(delete_confirm, F.data.startswith(DELETE_CONFIRM_PREFIX))
+    router.callback_query.register(delete_cancel, F.data == DELETE_CANCEL)
     router.callback_query.register(group_new, F.data == GROUP_NEW)
     router.callback_query.register(group_select, F.data.startswith(GROUP_SELECT_PREFIX))
     router.callback_query.register(group_page, F.data.startswith(GROUP_PAGE_PREFIX))

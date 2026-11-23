@@ -23,6 +23,7 @@ _COMMANDS = (
     ("history", "cmd_history"),
     ("new", "cmd_new"),
     ("newgroup", "cmd_newgroup"),
+    ("delete", "cmd_delete"),
 )
 
 
