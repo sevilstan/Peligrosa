@@ -3,6 +3,7 @@ import logging
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.services.character_memory_service import CharacterMemoryService
 from app.services.memory_extractor import MemoryExtractor
@@ -133,6 +134,9 @@ class ConversationService:
             .values(
                 summary=updated_summary,
                 summary_message_count=len(messages),
+                # Keep updated_at as is: it marks the chat the user last
+                # opened, and a late background summary must not change it.
+                updated_at=Conversation.updated_at,
             )
             .execution_options(synchronize_session=False)
         )
@@ -144,8 +148,11 @@ class ConversationService:
             await self.session.refresh(conversation)
             return
 
-        conversation.summary = updated_summary
-        conversation.summary_message_count = len(messages)
+        # Already written by the UPDATE above. set_committed_value refreshes
+        # the in-memory object without marking it changed; a plain assignment
+        # would make the next flush UPDATE the row again (bumping updated_at).
+        set_committed_value(conversation, "summary", updated_summary)
+        set_committed_value(conversation, "summary_message_count", len(messages))
         logger.info("Conversation summary updated (%d messages).", len(messages))
 
     async def send_message(
