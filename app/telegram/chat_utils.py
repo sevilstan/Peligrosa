@@ -3,6 +3,8 @@ import contextlib
 from collections import defaultdict
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 TELEGRAM_MESSAGE_LIMIT = 4096
 
@@ -59,3 +61,17 @@ async def typing_indicator(bot: Bot, chat_id: int):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+
+async def edit_text_in_place(
+    callback: CallbackQuery, text: str, markup: InlineKeyboardMarkup | None
+) -> None:
+    """Edit the message under a pressed button; a no-op edit is not an error."""
+    message = callback.message
+    if not isinstance(message, Message):
+        return  # inaccessible (old) message: nothing to edit
+    try:
+        await message.edit_text(text, reply_markup=markup)
+    except TelegramBadRequest as exc:
+        if "message is not modified" not in str(exc):
+            raise

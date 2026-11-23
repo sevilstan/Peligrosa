@@ -58,7 +58,9 @@ class UserMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
-_MENU_LABELS = all_labels("menu_characters") | all_labels("menu_chats")
+_MENU_LABELS = (
+    all_labels("menu_characters") | all_labels("menu_chats") | all_labels("menu_history")
+)
 
 
 class ChatOrderMiddleware(BaseMiddleware):
