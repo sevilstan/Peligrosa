@@ -6,6 +6,8 @@ from aiogram.types import TelegramObject, Update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.services.telegram_user_service import TelegramUserService
+from app.telegram.chat_utils import UserLocks
+from app.telegram.texts import all_labels
 
 logger = logging.getLogger(__name__)
 
@@ -54,3 +56,37 @@ class UserMiddleware(BaseMiddleware):
 
         data["user"] = user
         return await handler(event, data)
+
+
+_MENU_LABELS = all_labels("menu_characters") | all_labels("menu_chats")
+
+
+class ChatOrderMiddleware(BaseMiddleware):
+    """Answer a user's chat messages one at a time, in the order they came.
+
+    Telegram updates are handled concurrently, so two quick messages would
+    otherwise run side by side and their replies could swap places. This is
+    the outermost middleware on purpose: tasks start in arrival order, and
+    the lock is taken before any database work that could reorder them.
+    Commands, menu buttons and inline buttons are not held back.
+    """
+
+    def __init__(self, locks: UserLocks):
+        self.locks = locks
+
+    async def __call__(self, handler: Handler, event: Update, data: dict[str, Any]):
+        message = event.message
+
+        is_chat_text = (
+            message is not None
+            and message.from_user is not None
+            and bool(message.text)
+            and not message.text.startswith("/")
+            and message.text not in _MENU_LABELS
+        )
+
+        if not is_chat_text:
+            return await handler(event, data)
+
+        async with self.locks.for_user(message.from_user.id):
+            return await handler(event, data)

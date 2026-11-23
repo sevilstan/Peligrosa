@@ -1,21 +1,14 @@
-"""Telegram foundation tests.
+"""Telegram foundation tests: users, gallery service, slider, avatars.
 
-No network and no bot token: the aiogram HTTP session is replaced by a fake
-that records every API call. Tests that need PostgreSQL use the run_db
-fixture (skipped without TEST_DATABASE_URL).
+No network and no bot token (see tests/telegram_harness.py). Tests that need
+PostgreSQL use the run_db fixture (skipped without TEST_DATABASE_URL).
 """
 
 import asyncio
-import time
 from pathlib import Path
 
 import pytest
-from aiogram import Bot
-from aiogram.client.session.base import BaseSession
-from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
-from aiogram.types import Chat, Message, Update
-from sqlalchemy import func, select
+from aiogram.types import Message
 
 from app.models import Character, User
 from app.services.character_definition_loader import CharacterDefinitionLoader
@@ -30,119 +23,20 @@ from app.services.telegram_user_service import (
     normalize_language_code,
 )
 from app.telegram import keyboards
+from app.telegram.avatars import AvatarProvider
 from app.telegram.bot import build_bot, build_dispatcher
-from app.telegram.texts import TEXTS, t
+from app.telegram.chat_utils import split_text
+from app.telegram.texts import TEXTS, all_labels, t
+from sqlalchemy import select
 
-# ---------------------------------------------------------------- fakes
-
-
-class FakeSession(BaseSession):
-    """Records API calls instead of talking to Telegram."""
-
-    def __init__(self):
-        super().__init__()
-        self.calls: list[tuple[str, dict]] = []
-        self.edit_error: str | None = None
-
-    async def make_request(self, bot, method, timeout=None):
-        data = method.model_dump(exclude_none=True)
-        self.calls.append((type(method).__name__, data))
-
-        if isinstance(method, EditMessageText) and self.edit_error:
-            raise TelegramBadRequest(method=method, message=self.edit_error)
-        if isinstance(method, (SendMessage, EditMessageText)):
-            return Message(
-                message_id=500,
-                date=int(time.time()),
-                chat=Chat(id=data.get("chat_id", 1), type="private"),
-            )
-        return True
-
-    async def close(self):
-        pass
-
-    async def stream_content(self, *args, **kwargs):  # pragma: no cover
-        yield b""
-
-    def named(self, name):
-        return [data for call, data in self.calls if call == name]
-
-
-def _from(user_id, is_bot, first, lang):
-    return {
-        "id": user_id,
-        "is_bot": is_bot,
-        "first_name": first,
-        "language_code": lang,
-    }
-
-
-def message_update(text, *, user_id=1001, chat_type="private", is_bot=False, first="Ada", lang="en"):
-    return {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "date": int(time.time()),
-            "chat": {"id": user_id, "type": chat_type},
-            "from": _from(user_id, is_bot, first, lang),
-            "text": text,
-        },
-    }
-
-
-def callback_update(data, *, user_id=1001, first="Ada", lang="en"):
-    return {
-        "update_id": 2,
-        "callback_query": {
-            "id": "cb1",
-            "chat_instance": "ci",
-            "from": _from(user_id, False, first, lang),
-            "data": data,
-            "message": {
-                "message_id": 20,
-                "date": int(time.time()),
-                "chat": {"id": user_id, "type": "private"},
-            },
-        },
-    }
-
-
-class Harness:
-    def __init__(self, maker):
-        self.maker = maker
-        self.session = FakeSession()
-        self.bot = Bot(token="123456:TEST", session=self.session)
-        self.dispatcher = build_dispatcher(maker)
-
-    async def send(self, payload):
-        update = Update.model_validate(payload, context={"bot": self.bot})
-        await self.dispatcher.feed_update(self.bot, update)
-
-    def buttons(self, call_name="SendMessage", index=-1):
-        markup = self.session.named(call_name)[index]["reply_markup"]
-        return [b for row in markup["inline_keyboard"] for b in row]
-
-
-async def add_characters(maker, specs):
-    async with maker() as session:
-        for name, slug, sort_order, is_active in specs:
-            session.add(
-                Character(
-                    name=name,
-                    slug=slug,
-                    description=f"About {name}",
-                    personality="p",
-                    system_prompt="s",
-                    sort_order=sort_order,
-                    is_active=is_active,
-                )
-            )
-        await session.commit()
-
-
-async def user_count(maker):
-    async with maker() as session:
-        return (await session.execute(select(func.count()).select_from(User))).scalar_one()
+from tests.telegram_harness import (
+    PNG,
+    Harness,
+    add_characters,
+    callback_update,
+    message_update,
+    user_count,
+)
 
 
 # ------------------------------------------------------- pure unit tests
@@ -168,31 +62,97 @@ def test_display_name_is_joined_and_truncated():
 def test_ui_texts_exist_in_every_language_with_same_keys():
     assert set(TEXTS["en"]) == set(TEXTS["tr"])
     assert t("de", "welcome", name="") == t("en", "welcome", name="")
-    assert t("tr", "chat_soon") != t("en", "chat_soon")
+    assert t("tr", "menu_chats") != t("en", "menu_chats")
+    assert all_labels("menu_chats") == {t("en", "menu_chats"), t("tr", "menu_chats")}
 
 
-def test_gallery_keyboard_has_navigation_only_where_it_applies():
+def _data(markup):
+    return [b.callback_data for row in markup.inline_keyboard for b in row]
+
+
+def test_slider_wraps_around_and_shows_counter():
     chars = [GalleryCharacter("a", "A", "d")]
 
-    first = keyboards.gallery_keyboard(GalleryPage(chars, 0, 3), "en")
-    middle = keyboards.gallery_keyboard(GalleryPage(chars, 1, 3), "en")
-    last = keyboards.gallery_keyboard(GalleryPage(chars, 2, 3), "en")
+    first = keyboards.slider_keyboard(GalleryPage(chars, 0, 3), "en")
+    middle = keyboards.slider_keyboard(GalleryPage(chars, 1, 3), "en")
+    last = keyboards.slider_keyboard(GalleryPage(chars, 2, 3), "en")
 
-    def data(markup):
-        return [b.callback_data for row in markup.inline_keyboard for b in row]
+    assert _data(first) == ["gallery:2", "noop", "gallery:1", "open:a"]
+    assert _data(middle) == ["gallery:0", "noop", "gallery:2", "open:a"]
+    assert _data(last) == ["gallery:1", "noop", "gallery:0", "open:a"]
+    assert first.inline_keyboard[0][1].text == "1/3"
 
-    assert data(first) == ["char:0:a", "gallery:1"]
-    assert data(middle) == ["char:1:a", "gallery:0", "gallery:2"]
-    assert data(last) == ["char:2:a", "gallery:1"]
+
+def test_single_character_has_no_arrows():
+    markup = keyboards.slider_keyboard(GalleryPage([GalleryCharacter("a", "A", "d")], 0, 1), "en")
+    assert _data(markup) == ["open:a"]
 
 
 def test_callback_data_never_exceeds_telegram_limit():
-    chars = [GalleryCharacter("x" * 80, "Long", "d"), GalleryCharacter("ok", "Ok", "d")]
-    markup = keyboards.gallery_keyboard(GalleryPage(chars, 0, 1), "en")
-    data = [b.callback_data for row in markup.inline_keyboard for b in row]
+    long_one = GalleryCharacter("x" * 80, "Long", "d")
+    markup = keyboards.slider_keyboard(GalleryPage([long_one], 0, 1), "en")
 
-    assert data == ["char:0:ok"]
-    assert all(len(d.encode()) <= 64 for d in data)
+    assert _data(markup) == []
+    assert keyboards.new_chat_keyboard(long_one, "en") is None
+
+
+def test_split_text_keeps_parts_within_the_limit():
+    text = ("word " * 50 + "\n\n") * 6
+
+    parts = split_text(text, limit=100)
+
+    assert all(0 < len(p) <= 100 for p in parts)
+    assert " ".join(" ".join(parts).split()) == " ".join(text.split())
+    assert split_text("short") == ["short"]
+    assert len(split_text("x" * 250, limit=100)) == 3  # no boundary: hard cut
+
+
+# ------------------------------------------------------------- avatars
+
+
+def test_local_avatar_beats_avatar_url_and_is_sent_as_file(tmp_path):
+    (tmp_path / "amy.png").write_bytes(PNG)
+    provider = AvatarProvider(tmp_path)
+
+    source = provider.resolve("amy", "https://example.test/a.png")
+
+    assert source.key.startswith("file:amy.png:")
+    assert type(source.media).__name__ == "FSInputFile"
+
+
+def test_avatar_url_must_be_https_and_slug_cannot_escape_the_folder(tmp_path):
+    (tmp_path.parent / "secret.png").write_bytes(PNG)
+    provider = AvatarProvider(tmp_path)
+
+    assert provider.resolve("amy", "https://example.test/a.png").media == "https://example.test/a.png"
+    assert provider.resolve("amy", "http://example.test/a.png") is None
+    assert provider.resolve("amy", "file:///etc/passwd") is None
+    assert provider.resolve("amy", None) is None
+    assert provider.resolve("../secret", None) is None
+
+
+def test_file_id_is_reused_until_forgotten_or_file_changes(tmp_path):
+    import os
+    from aiogram.types import Chat, PhotoSize
+
+    path = tmp_path / "amy.png"
+    path.write_bytes(PNG)
+    provider = AvatarProvider(tmp_path)
+    sent = Message(
+        message_id=1, date=0, chat=Chat(id=1, type="private"),
+        photo=[PhotoSize(file_id="FID", file_unique_id="u", width=1, height=1)],
+    )
+
+    source = provider.resolve("amy", None)
+    provider.remember(source, sent)
+    assert provider.resolve("amy", None).media == "FID"
+
+    os.utime(path, ns=(1, 1))  # picture replaced: old file_id is stale
+    assert type(provider.resolve("amy", None).media).__name__ == "FSInputFile"
+
+    provider.remember(provider.resolve("amy", None), sent)
+    provider.forget(provider.resolve("amy", None))
+    assert type(provider.resolve("amy", None).media).__name__ == "FSInputFile"
 
 
 def test_bot_can_be_built_without_network():
@@ -261,7 +221,7 @@ def test_gallery_shows_only_active_characters_in_order(run_db):
             [("Zed", "zed", 1, True), ("Amy", "amy", 2, True), ("Hidden", "hidden", 0, False), ("Bob", "bob", 1, True)],
         )
         async with maker() as s:
-            page = await CharacterGalleryService(s).get_page(0)
+            page = await CharacterGalleryService(s, page_size=10).get_page(0)
 
         assert [c.slug for c in page.characters] == ["bob", "zed", "amy"]
         assert page.total_pages == 1
@@ -294,7 +254,7 @@ def test_gallery_prefers_yaml_and_survives_broken_yaml(run_db, tmp_path: Path):
     async def scenario(maker):
         await add_characters(maker, [("Amy DB", "amy", 0, True), ("Bob DB", "bob", 1, True), ("Cy DB", "cy", 2, True)])
         async with maker() as s:
-            page = await CharacterGalleryService(s, CharacterDefinitionLoader(tmp_path)).get_page(0)
+            page = await CharacterGalleryService(s, CharacterDefinitionLoader(tmp_path), page_size=10).get_page(0)
 
         by_slug = {c.slug: c for c in page.characters}
         assert (by_slug["amy"].name, by_slug["amy"].description) == ("Amy YAML", "from yaml")
@@ -316,21 +276,36 @@ def test_get_character_ignores_inactive_and_unknown(run_db):
     run_db(scenario)
 
 
-# ------------------------------------------------- end-to-end bot flows
 
 
-def test_start_registers_user_and_shows_gallery(run_db):
+def test_gallery_is_a_slider_with_one_character_per_page(run_db):
+    async def scenario(maker):
+        await add_characters(maker, [("A", "a", 0, True), ("B", "b", 1, True)])
+        async with maker() as s:
+            page = await CharacterGalleryService(s).get_page(1)
+
+        assert [c.slug for c in page.characters] == ["b"]
+        assert page.total_pages == 2
+
+    run_db(scenario)
+
+
+# ------------------------------------------------- slider flows (bot)
+
+
+def test_start_registers_user_shows_menu_and_first_slide(run_db, tmp_path):
     async def scenario(maker):
         await add_characters(maker, [("Elena", "elena", 0, True), ("Natalie", "natalie", 1, True)])
-        bot = Harness(maker)
+        bot = Harness(maker, tmp_path)
 
-        await bot.send(message_update("/start", user_id=555, first="Ada", lang="en"))
+        await bot.send(message_update("/start", user_id=555, first="Ada"))
 
-        sent = bot.session.named("SendMessage")
-        assert len(sent) == 2
-        assert "Ada" in sent[0]["text"]
-        assert "Elena" in sent[1]["text"] and "Natalie" in sent[1]["text"]
-        assert [b["callback_data"] for b in bot.buttons()] == ["char:0:elena", "char:0:natalie"]
+        welcome, slide = bot.session.named("SendMessage")
+        assert "Ada" in welcome["text"]
+        menu = welcome["reply_markup"]["keyboard"][0]
+        assert [b["text"] for b in menu] == [t("en", "menu_characters"), t("en", "menu_chats")]
+        assert "Elena" in slide["text"] and "Natalie" not in slide["text"]
+        assert bot.callback_data() == ["gallery:1", "noop", "gallery:1", "open:elena"]
 
         async with maker() as s:
             user = (await s.execute(select(User).where(User.telegram_id == 555))).scalar_one()
@@ -339,25 +314,136 @@ def test_start_registers_user_and_shows_gallery(run_db):
     run_db(scenario)
 
 
-def test_ui_language_follows_the_telegram_language(run_db):
+def test_slide_with_a_local_picture_is_sent_as_a_photo_then_reused(run_db, tmp_path):
+    (tmp_path / "elena.png").write_bytes(PNG)
+
     async def scenario(maker):
         await add_characters(maker, [("Elena", "elena", 0, True)])
-        bot = Harness(maker)
+        bot = Harness(maker, tmp_path)
 
-        await bot.send(message_update("/characters", lang="tr"))
+        await bot.send(message_update("/characters"))
+        await bot.send(message_update("/characters"))
 
-        assert "Karakterler" in bot.session.named("SendMessage")[0]["text"]
+        photos = bot.session.named("SendPhoto")
+        assert len(photos) == 2
+        assert "<b>Elena</b>" in photos[0]["caption"]
+        assert type(photos[0]["photo"]).__name__ == "FSInputFile"
+        assert photos[1]["photo"] == "tg-file-id"  # second time: no re-upload
 
     run_db(scenario)
 
 
-def test_gallery_list_escapes_html_in_names_and_descriptions(run_db):
+def test_avatar_url_is_used_when_there_is_no_local_picture(run_db, tmp_path):
+    async def scenario(maker):
+        await add_characters(maker, [("Elena", "elena", 0, True)], avatar_url="https://example.test/e.jpg")
+        bot = Harness(maker, tmp_path)
+
+        await bot.send(message_update("/characters"))
+
+        assert bot.session.named("SendPhoto")[0]["photo"] == "https://example.test/e.jpg"
+
+    run_db(scenario)
+
+
+def test_unusable_picture_falls_back_to_a_text_card(run_db, tmp_path):
+    async def scenario(maker):
+        await add_characters(maker, [("Elena", "elena", 0, True)], avatar_url="https://example.test/e.jpg")
+        bot = Harness(maker, tmp_path)
+        bot.session.photo_error = "Bad Request: wrong file identifier/HTTP URL specified"
+
+        await bot.send(message_update("/characters"))
+
+        assert "Elena" in bot.session.named("SendMessage")[0]["text"]
+        assert bot.callback_data()[-1] == "open:elena"
+
+    run_db(scenario)
+
+
+def test_arrows_edit_text_slides_in_place(run_db, tmp_path):
+    async def scenario(maker):
+        await add_characters(maker, [("Amy", "amy", 0, True), ("Bob", "bob", 1, True)])
+        bot = Harness(maker, tmp_path)
+
+        await bot.send(callback_update("gallery:1"))
+
+        edited = bot.session.named("EditMessageText")
+        assert len(edited) == 1 and "Bob" in edited[0]["text"]
+        assert bot.session.named("AnswerCallbackQuery")
+        assert "DeleteMessage" not in bot.session.names()
+
+    run_db(scenario)
+
+
+def test_arrows_edit_photo_slides_with_edit_media(run_db, tmp_path):
+    (tmp_path / "amy.png").write_bytes(PNG)
+    (tmp_path / "bob.png").write_bytes(PNG)
+
+    async def scenario(maker):
+        await add_characters(maker, [("Amy", "amy", 0, True), ("Bob", "bob", 1, True)])
+        bot = Harness(maker, tmp_path)
+
+        await bot.send(callback_update("gallery:1", has_photo=True))
+
+        media = bot.session.named("EditMessageMedia")
+        assert len(media) == 1 and "Bob" in media[0]["media"]["caption"]
+        assert "SendMessage" not in bot.session.names()
+
+    run_db(scenario)
+
+
+def test_switching_between_photo_and_text_slides_sends_then_deletes(run_db, tmp_path):
+    (tmp_path / "bob.png").write_bytes(PNG)  # Amy has no picture, Bob has
+
+    async def scenario(maker):
+        await add_characters(maker, [("Amy", "amy", 0, True), ("Bob", "bob", 1, True)])
+        bot = Harness(maker, tmp_path)
+
+        # text slide (Amy) -> photo slide (Bob)
+        await bot.send(callback_update("gallery:1", has_photo=False))
+        assert bot.session.names()[:2] == ["SendPhoto", "DeleteMessage"]
+
+        bot.session.calls.clear()
+        # photo slide (Bob) -> text slide (Amy)
+        await bot.send(callback_update("gallery:0", has_photo=True))
+        assert bot.session.names()[:2] == ["SendMessage", "DeleteMessage"]
+        assert "Amy" in bot.session.named("SendMessage")[0]["text"]
+
+    run_db(scenario)
+
+
+def test_not_modified_edit_is_swallowed_and_callback_answered(run_db, tmp_path):
+    async def scenario(maker):
+        await add_characters(maker, [("A", "a", 0, True)])
+        bot = Harness(maker, tmp_path)
+        bot.session.edit_text_error = "Bad Request: message is not modified: same content"
+
+        await bot.send(callback_update("gallery:0"))
+
+        assert bot.session.named("AnswerCallbackQuery")
+
+    run_db(scenario)
+
+
+def test_hostile_page_numbers_do_not_crash(run_db, tmp_path):
+    async def scenario(maker):
+        await add_characters(maker, [("A", "a", 0, True)])
+        bot = Harness(maker, tmp_path)
+
+        for data in ("gallery:99999999999999999999", "gallery:-1", "gallery:abc", "gallery:", "noop"):
+            await bot.send(callback_update(data))
+
+        assert len(bot.session.named("AnswerCallbackQuery")) == 5
+
+    run_db(scenario)
+
+
+def test_slide_escapes_html_in_name_and_description(run_db, tmp_path):
     async def scenario(maker):
         async with maker() as s:
             s.add(Character(name="<i>X</i>", slug="x", description="a <u>b</u> & c",
                             personality="p", system_prompt="s"))
             await s.commit()
-        bot = Harness(maker)
+        bot = Harness(maker, tmp_path)
 
         await bot.send(message_update("/characters"))
 
@@ -369,14 +455,13 @@ def test_gallery_list_escapes_html_in_names_and_descriptions(run_db):
     run_db(scenario)
 
 
-def test_empty_gallery_says_so(run_db):
+def test_ui_language_follows_the_telegram_language(run_db, tmp_path):
     async def scenario(maker):
-        bot = Harness(maker)
-        await bot.send(message_update("/characters"))
+        bot = Harness(maker, tmp_path)
 
-        sent = bot.session.named("SendMessage")[0]
-        assert sent["text"] == t("en", "gallery_empty")
-        assert "reply_markup" not in sent
+        await bot.send(message_update("/characters", lang="tr"))
+
+        assert bot.texts() == [t("tr", "gallery_empty")]
 
     run_db(scenario)
 
@@ -389,9 +474,9 @@ def test_empty_gallery_says_so(run_db):
         message_update("/start", is_bot=True),
     ],
 )
-def test_non_private_and_bot_updates_are_ignored(run_db, payload):
+def test_non_private_and_bot_updates_are_ignored(run_db, tmp_path, payload):
     async def scenario(maker):
-        bot = Harness(maker)
+        bot = Harness(maker, tmp_path)
         await bot.send(payload)
 
         assert bot.session.calls == []
@@ -400,105 +485,19 @@ def test_non_private_and_bot_updates_are_ignored(run_db, payload):
     run_db(scenario)
 
 
-def test_deactivated_user_gets_no_reply(run_db):
+def test_deactivated_user_gets_no_reply(run_db, tmp_path):
     async def scenario(maker):
         async with maker() as s:
             await TelegramUserService(s).get_or_create(77, "Ada")
             user = (await s.execute(select(User).where(User.telegram_id == 77))).scalar_one()
             user.is_active = False
             await s.commit()
-        bot = Harness(maker)
+        bot = Harness(maker, tmp_path)
 
         await bot.send(message_update("/start", user_id=77))
         await bot.send(callback_update("gallery:0", user_id=77))
+        await bot.send(message_update("hello", user_id=77))
 
         assert bot.session.calls == []
-
-    run_db(scenario)
-
-
-def test_gallery_page_button_edits_the_message(run_db):
-    async def scenario(maker):
-        await add_characters(maker, [(f"C{i}", f"c{i}", i, True) for i in range(8)])
-        bot = Harness(maker)
-
-        await bot.send(callback_update("gallery:1"))
-
-        edited = bot.session.named("EditMessageText")
-        assert len(edited) == 1
-        assert "(2/2)" in edited[0]["text"]
-        assert "C6" in edited[0]["text"] and "C0" not in edited[0]["text"]
-        assert bot.session.named("AnswerCallbackQuery")
-
-    run_db(scenario)
-
-
-def test_hostile_page_numbers_do_not_crash(run_db):
-    async def scenario(maker):
-        await add_characters(maker, [("A", "a", 0, True)])
-        bot = Harness(maker)
-
-        for data in ("gallery:99999999999999999999", "gallery:-1", "gallery:abc", "gallery:"):
-            await bot.send(callback_update(data))
-
-        assert len(bot.session.named("EditMessageText")) == 4
-
-    run_db(scenario)
-
-
-def test_not_modified_edit_is_swallowed_and_callback_answered(run_db):
-    async def scenario(maker):
-        await add_characters(maker, [("A", "a", 0, True)])
-        bot = Harness(maker)
-        bot.session.edit_error = "Bad Request: message is not modified: same content"
-
-        await bot.send(callback_update("gallery:0"))
-
-        assert bot.session.named("AnswerCallbackQuery")
-
-    run_db(scenario)
-
-
-def test_character_card_shows_escaped_details_and_back_to_the_right_page(run_db):
-    async def scenario(maker):
-        await add_characters(maker, [("<b>Evil</b>", "evil", 0, True)])
-        bot = Harness(maker)
-
-        await bot.send(callback_update("char:3:evil"))
-
-        text = bot.session.named("EditMessageText")[0]["text"]
-        assert "&lt;b&gt;Evil&lt;/b&gt;" in text
-        assert "<b>Evil</b>" not in text
-        data = [b["callback_data"] for b in bot.buttons("EditMessageText")]
-        assert data == ["open:evil", "gallery:3"]
-
-    run_db(scenario)
-
-
-def test_unknown_or_inactive_character_gives_an_alert_not_a_card(run_db):
-    async def scenario(maker):
-        await add_characters(maker, [("Off", "off", 0, False)])
-        bot = Harness(maker)
-
-        for data in ("char:0:off", "char:0:missing", "char:0:../../etc/passwd", "char:"):
-            await bot.send(callback_update(data))
-
-        assert bot.session.named("EditMessageText") == []
-        alerts = bot.session.named("AnswerCallbackQuery")
-        assert len(alerts) == 4 and all(a["show_alert"] for a in alerts)
-
-    run_db(scenario)
-
-
-def test_open_button_and_plain_text_say_chat_is_coming(run_db):
-    async def scenario(maker):
-        bot = Harness(maker)
-
-        await bot.send(callback_update("open:elena"))
-        await bot.send(message_update("hello there", lang="tr"))
-
-        assert bot.session.named("AnswerCallbackQuery")[0]["text"] == t("en", "chat_soon")
-        # the second update carries language "tr", which refreshes the profile
-        assert bot.session.named("SendMessage")[0]["text"] == t("tr", "plain_text")
 
     run_db(scenario)

@@ -9,7 +9,8 @@ from app.services.character_definition_loader import CharacterDefinitionLoader
 
 logger = logging.getLogger(__name__)
 
-PAGE_SIZE = 6
+# One character per page: the gallery is a slider.
+PAGE_SIZE = 1
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class GalleryCharacter:
     slug: str
     name: str
     description: str
+    avatar_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,7 +77,7 @@ class CharacterGalleryService:
         ).scalars().all()
 
         return GalleryPage(
-            characters=[self._present(row) for row in rows],
+            characters=[self.present(row) for row in rows],
             page=page,
             total_pages=total_pages,
         )
@@ -92,9 +94,9 @@ class CharacterGalleryService:
             )
         ).scalar_one_or_none()
 
-        return self._present(row) if row else None
+        return self.present(row) if row else None
 
-    def _present(self, row: Character) -> GalleryCharacter:
+    def present(self, row: Character) -> GalleryCharacter:
         definition = None
         try:
             definition = self.definition_loader.load(row.slug)
@@ -112,4 +114,5 @@ class CharacterGalleryService:
             description=(
                 (definition.description if definition else "") or row.description
             ),
+            avatar_url=row.avatar_url,
         )
