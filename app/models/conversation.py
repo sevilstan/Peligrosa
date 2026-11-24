@@ -52,6 +52,13 @@ class Conversation(Base):
         server_default="0",
         nullable=False,
     )
+    # How many messages the feelings reflection (groups) has already looked at.
+    reflection_message_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

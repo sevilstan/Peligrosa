@@ -558,7 +558,7 @@ async def _group_text(message, bot, session, user, provider, conversation_id, te
         # Each reply is sent as soon as it exists; typing stays on meanwhile.
         async with typing_indicator(bot, message.chat.id):
             await GroupConversationService(
-                session, ai_provider=provider, followup_chance=FOLLOWUP_CHANCE
+                session, ai_provider=provider, followup_chance=FOLLOWUP_CHANCE, reflection=True
             ).send_message(
                 conversation_id=conversation_id,
                 user_id=user.id,
