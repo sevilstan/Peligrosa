@@ -44,6 +44,22 @@ def build_initiative_runner(bot, session_maker, provider, locks) -> InitiativeRu
     )
 
 
+def build_ai_provider():
+    """The provider the bot talks to: Groq, kept inside its request limits.
+
+    Fails early with a clear message when GROQ_API_KEY is missing.
+    """
+    from app.providers.groq_provider import GroqProvider
+    from app.providers.rate_limited_provider import RateLimitedProvider
+
+    return RateLimitedProvider(
+        GroqProvider(),
+        max_per_minute=settings.AI_MAX_REQUESTS_PER_MINUTE,
+        max_concurrent=settings.AI_MAX_CONCURRENT_REQUESTS,
+        max_wait=settings.AI_MAX_QUEUE_WAIT_SECONDS,
+    )
+
+
 def build_bot(token: str) -> Bot:
     return Bot(
         token=token,
@@ -111,15 +127,13 @@ async def set_commands(bot: Bot) -> None:
 
 async def run() -> None:
     from app.database.session import SessionLocal
-    from app.providers.groq_provider import GroqProvider
 
     if not settings.TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set. Add it to your .env file.")
     if SessionLocal is None:
         raise RuntimeError("DATABASE_URL is not set. Add it to your .env file.")
 
-    # Fails early with a clear message when GROQ_API_KEY is missing.
-    provider = GroqProvider()
+    provider = build_ai_provider()
 
     bot = build_bot(settings.TELEGRAM_BOT_TOKEN)
     locks = UserLocks()  # shared: a character never talks over a live chat

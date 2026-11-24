@@ -18,6 +18,7 @@ from app.services.group_context_builder import (
     group_instructions,
     label_messages,
 )
+from app.services.character_memory_service import CharacterMemoryService
 from app.services.character_state_service import (
     CharacterEmotionService,
     CharacterRelationshipService,
@@ -189,7 +190,7 @@ class GroupConversationService:
                 return
 
             if parsed is not None:
-                relationships, moods = parsed
+                relationships, moods, events = parsed
                 relationship_service = CharacterRelationshipService(self.session)
                 emotion_service = CharacterEmotionService(self.session)
 
@@ -197,6 +198,24 @@ class GroupConversationService:
                     await relationship_service.apply_deltas(user_id, sender.id, target.id, deltas)
                 for member, mood, intensity, reason in moods:
                     await emotion_service.set_emotion(user_id, member.id, mood, intensity, reason)
+
+                # Everyone who was in the group witnessed the event: each one
+                # keeps it in ITS OWN memory (separate records), so it can come
+                # up in other chats too. Nobody outside the group learns it.
+                memory_service = CharacterMemoryService(self.session)
+                for key, content, importance in events:
+                    for member in members:
+                        await memory_service.add_memory(
+                            user_id=user_id,
+                            character_id=member.id,
+                            category="event",
+                            content=content,
+                            importance=importance,
+                            confidence=0.8,
+                            memory_key=key,
+                            source_conversation_id=conversation_id,
+                            source_kind="group",
+                        )
 
             await self.session.commit()
         except Exception as exc:

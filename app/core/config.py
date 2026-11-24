@@ -37,6 +37,18 @@ class Settings(BaseSettings):
     INITIATIVE_UTC_OFFSET_HOURS: int = 3  # Telegram does not tell us the time zone
     INITIATIVE_MAX_PER_CHECK: int = 5  # cost guard per check
 
+    # Stay inside the provider's limits (Groq free tier: 30 requests/minute).
+    # Extra requests wait in line; after AI_MAX_QUEUE_WAIT_SECONDS the user is
+    # asked to try again. Counted per process: run one bot per API key.
+    AI_MAX_REQUESTS_PER_MINUTE: int = 25
+    AI_MAX_CONCURRENT_REQUESTS: int = 4
+    AI_MAX_QUEUE_WAIT_SECONDS: float = 60.0
+
+    # Database connections. A chat reply keeps its connection while the AI
+    # answers, so this bounds how many conversations can be in flight.
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore"
     )
