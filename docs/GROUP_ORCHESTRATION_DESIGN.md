@@ -282,3 +282,16 @@ Decided by the product owner (2026-11-24):
   output is skipped. Cost: ~1 call per 8 messages. Characters now react to
   what happened (e.g. Bob stays upset after Amy teased him) in later replies.
   Not yet: reflecting in direct chats, group events as memories, initiative (F).
+- **F. Initiative (characters write first): implemented, dormant by default.**
+  Three switches must all be on: the operator (`INITIATIVE_ENABLED`, default
+  off), the user (`/proactive on`, default off for everyone) and the rules in
+  `InitiativeService`: not in quiet hours (22:00-09:00 at `INITIATIVE_UTC_OFFSET_HOURS`,
+  default +3, because Telegram does not give a time zone), the active chat has
+  been silent 6h-7 days, the last message is not an unanswered initiative, at
+  most one initiative per user per 24h, never while the user is in a live
+  conversation (shared per-user lock). Direct chat: that character writes; group:
+  one random member, in its own voice with its own memories and feelings.
+  Cost guard: at most `INITIATIVE_MAX_PER_CHECK` (5) messages per 15-minute
+  check, and a check only costs an AI call for users who pass every rule.
+  A user who blocks the bot is switched off automatically. Defaults are product
+  decisions for the owner (see the PR).

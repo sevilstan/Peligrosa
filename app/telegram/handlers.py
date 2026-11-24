@@ -3,10 +3,11 @@ import logging
 import uuid
 
 from aiogram import Bot, F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.user import User
 from app.services.character_gallery_service import CharacterGalleryService
 from app.services.character_removal_service import (
@@ -196,6 +197,35 @@ async def new_chat_command(message: Message, session: AsyncSession, user: User, 
 
     context = await service.start_new_chat(user.id, active.character.slug)
     await _announce_chat(message, service, user, context)
+
+
+# ------------------------------------------------------------- proactive
+
+_PROACTIVE_ON = {"on", "aç", "ac", "açık", "acik"}
+_PROACTIVE_OFF = {"off", "kapat", "kapalı", "kapali"}
+
+
+async def proactive_command(
+    message: Message, command: CommandObject, session: AsyncSession, user: User
+) -> None:
+    """/proactive [on|off]: let characters message first (opt-in)."""
+    language = user.language_code
+
+    if not settings.INITIATIVE_ENABLED:
+        await message.answer(t(language, "proactive_unavailable"))
+        return
+
+    choice = (command.args or "").strip().lower()
+
+    if choice in _PROACTIVE_ON or choice in _PROACTIVE_OFF:
+        user.proactive_enabled = choice in _PROACTIVE_ON
+        await session.commit()
+        await message.answer(t(language, "proactive_on" if user.proactive_enabled else "proactive_off"))
+        return
+
+    await message.answer(
+        t(language, "proactive_status_on" if user.proactive_enabled else "proactive_status_off")
+    )
 
 
 # ------------------------------------------------------------ chat list
@@ -594,6 +624,7 @@ def build_router() -> Router:
     router.message.register(new_chat_command, Command("new"))
     router.message.register(group_command, Command("newgroup"))
     router.message.register(delete_command, Command("delete"))
+    router.message.register(proactive_command, Command("proactive"))
     router.message.register(unknown_command, F.text.startswith("/"))
     router.message.register(chat_text, F.text)
     router.message.register(non_text)

@@ -252,3 +252,13 @@ A character's current mood per user (one row). Fades with time when read.
 | `reflection_message_count` | `INTEGER` | False | `0` |
 
 How many messages the group feelings reflection has already looked at (migration `d52e8f3b1c21`).
+
+
+
+### `users` (addition)
+
+| Column | Type | Nullable | Default |
+|---|---|---|---|
+| `proactive_enabled` | `BOOLEAN` | False | `false` |
+
+Opt-in for characters writing first (`/proactive on`). Existing users stay opted out (migration `e63f9a4c2d32`). Messages written this way have `messages.message_type = 'initiative'` (no schema change).
