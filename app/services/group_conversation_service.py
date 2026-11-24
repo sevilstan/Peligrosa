@@ -16,6 +16,7 @@ from app.services.group_context_builder import (
     group_instructions,
     label_messages,
 )
+from app.services.speaker_director import SILENCE, SpeakerDirector
 from app.services.speaker_selection import GroupMember, SpeakerChoice, select_speaker
 
 logger = logging.getLogger(__name__)
@@ -25,9 +26,10 @@ _USER_TEXT_FOR_RECALL = 1500
 
 @dataclass(frozen=True)
 class GroupReply:
-    speaker: GroupMember
-    content: str
-    reason: str  # why this character answered (see speaker_selection)
+    # speaker/content/message_id are None when the director chose silence.
+    speaker: GroupMember | None
+    content: str | None
+    reason: str  # "addressed", "director", "continuation", "default" or "silence"
     message_id: object
 
 
@@ -48,6 +50,7 @@ class GroupConversationService:
         self.session = session
         self.engine = ConversationService(session, ai_provider=ai_provider)
         self.gallery = CharacterGalleryService(session)
+        self.director = SpeakerDirector(self.engine.ai_provider)
 
     async def send_message(self, conversation_id, user_id, content) -> GroupReply:
         conversation, members, user_name = await self._load(conversation_id, user_id)
@@ -80,6 +83,15 @@ class GroupConversationService:
         last_speaker_id = self._last_character_speaker(history[:-1])
 
         choice = select_speaker(content, members, last_speaker_id)
+
+        if choice.reason != "addressed":
+            # Nobody was called by name: let the director decide (or fall back
+            # to the rule-based choice if it cannot).
+            decided = await self.director.choose(history, members, names, user_name)
+            if decided is SILENCE:
+                return GroupReply(None, None, "silence", None)
+            if isinstance(decided, GroupMember):
+                choice = SpeakerChoice(decided, "director")
         reply_text = await self._reply(conversation, members, choice, history, user_id, user_name, names)
 
         character_message = Message(

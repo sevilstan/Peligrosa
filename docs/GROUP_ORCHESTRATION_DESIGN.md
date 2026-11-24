@@ -234,3 +234,9 @@ Decided by the product owner (2026-11-24):
   (`source_kind="group"`); deletion requests apply to every member. Telegram
   replies start with the bold character name. Director call, silence and
   multi-speaker come in C and D.
+- **C. Speaker director: implemented (still one speaker per message).** When
+  nobody is addressed by name, a small structured call (`SpeakerDirector`) reads
+  the last 6 messages and returns a member slug or `null` (silence). Output is
+  validated; any failure falls back to the rule-based choice, so a reply is never
+  lost. Silence saves the user's message and sends nothing in Telegram. Cost:
+  +1 call only for messages that do not address a character by name.
