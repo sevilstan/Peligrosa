@@ -49,6 +49,15 @@ class User(Base):
         default=True,
     )
 
+    # Opt-in: characters may write first only if the user turned this on
+    # (/proactive). Off by default.
+    proactive_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

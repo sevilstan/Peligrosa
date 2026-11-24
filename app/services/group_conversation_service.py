@@ -243,7 +243,7 @@ class GroupConversationService:
 
         return [(m, "everyone") for m in members]
 
-    async def _speak(self, conversation, members, speaker, reason, user_id, user_name, names, on_reply, directive=None):
+    async def _speak(self, conversation, members, speaker, reason, user_id, user_name, names, on_reply, directive=None, message_type="text"):
         """Generate, save and deliver one character message."""
         # Later speakers see the earlier replies of this same turn.
         history = await self._messages(conversation.id)
@@ -256,7 +256,7 @@ class GroupConversationService:
             sender_type="character",
             sender_character_id=speaker.id,
             content=reply_text,
-            message_type="text",
+            message_type=message_type,
         )
         self.session.add(character_message)
         await self.session.commit()

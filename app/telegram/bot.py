@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 
 from aiogram import Bot, Dispatcher
@@ -10,7 +12,9 @@ from app.core.config import settings
 from app.telegram.avatars import AvatarProvider
 from app.telegram.chat_utils import UserLocks
 from app.telegram.group_drafts import GroupDrafts
+from app.services.initiative_service import InitiativeConfig
 from app.telegram.handlers import build_router
+from app.telegram.initiative_runner import InitiativeRunner
 from app.telegram.middlewares import ChatOrderMiddleware, DbSessionMiddleware, UserMiddleware
 from app.telegram.texts import TEXTS, resolve_language, t
 
@@ -24,7 +28,20 @@ _COMMANDS = (
     ("new", "cmd_new"),
     ("newgroup", "cmd_newgroup"),
     ("delete", "cmd_delete"),
+    ("proactive", "cmd_proactive"),
 )
+
+
+def build_initiative_runner(bot, session_maker, provider, locks) -> InitiativeRunner:
+    return InitiativeRunner(
+        bot,
+        session_maker,
+        provider,
+        locks,
+        config=InitiativeConfig.from_settings(settings),
+        check_seconds=settings.INITIATIVE_CHECK_SECONDS,
+        max_per_check=settings.INITIATIVE_MAX_PER_CHECK,
+    )
 
 
 def build_ai_provider():
@@ -54,6 +71,7 @@ def build_dispatcher(
     session_maker: async_sessionmaker[AsyncSession],
     ai_provider=None,
     avatars: AvatarProvider | None = None,
+    locks: UserLocks | None = None,
 ) -> Dispatcher:
     # Everything handlers need beyond the update itself is injected by name.
     dispatcher = Dispatcher(
@@ -64,7 +82,7 @@ def build_dispatcher(
 
     # Order matters: message ordering first (before any database work),
     # then the session, then the user that needs it.
-    dispatcher.update.outer_middleware(ChatOrderMiddleware(UserLocks()))
+    dispatcher.update.outer_middleware(ChatOrderMiddleware(locks or UserLocks()))
     dispatcher.update.outer_middleware(DbSessionMiddleware(session_maker))
     dispatcher.update.outer_middleware(UserMiddleware())
     dispatcher.include_router(build_router())
@@ -118,7 +136,15 @@ async def run() -> None:
     provider = build_ai_provider()
 
     bot = build_bot(settings.TELEGRAM_BOT_TOKEN)
-    dispatcher = build_dispatcher(SessionLocal, ai_provider=provider)
+    locks = UserLocks()  # shared: a character never talks over a live chat
+    dispatcher = build_dispatcher(SessionLocal, ai_provider=provider, locks=locks)
+
+    initiative_task = None
+    if settings.INITIATIVE_ENABLED:
+        initiative_task = asyncio.create_task(
+            build_initiative_runner(bot, SessionLocal, provider, locks).run_forever()
+        )
+        logger.info("Characters may write first (opt-in users only).")
 
     try:
         await set_commands(bot)
@@ -126,4 +152,8 @@ async def run() -> None:
             bot, allowed_updates=dispatcher.resolve_used_update_types()
         )
     finally:
+        if initiative_task is not None:
+            initiative_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await initiative_task
         await bot.session.close()
