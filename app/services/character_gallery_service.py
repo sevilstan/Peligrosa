@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.character import Character
-from app.services.character_definition_loader import CharacterDefinitionLoader
+from app.services.character_definition_loader import CharacterDefinitionLoader, CharacterProfile
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,7 @@ class GalleryCharacter:
     name: str
     description: str
     avatar_url: str | None = None
+    profile: CharacterProfile | None = None
 
 
 @dataclass(frozen=True)
@@ -115,4 +116,5 @@ class CharacterGalleryService:
                 (definition.description if definition else "") or row.description
             ),
             avatar_url=row.avatar_url,
+            profile=(definition.profile if definition else None),
         )

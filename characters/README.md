@@ -19,6 +19,10 @@ must match both the filename and the database row.
 - `name`: character display name.
 - `slug`: stable identifier; lowercase letters, numbers and hyphens.
 - `description`: short character identity.
+- `profile` (optional): the card shown in the character slider and facts the
+  character knows about herself: `age` (18 or more), `city`, `occupation`,
+  `bio` (short life story, up to 600 characters) and `highlights` (up to 5
+  short key traits). Missing parts are left out of the card.
 - `personality`: structured lists such as `core_traits`, `speech_style`,
   `values`, `likes`, `dislikes`, `emotional_tendencies` and
   `social_behavior`.
