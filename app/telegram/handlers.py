@@ -545,31 +545,29 @@ async def chat_text(
 async def _group_text(message, bot, session, user, provider, conversation_id, text) -> None:
     language = user.language_code
 
+    async def deliver(reply) -> None:
+        # One bot, several voices: the name opens the message. Only the name
+        # is HTML (escaped); the character's words stay plain text.
+        parts = split_text(reply.content)
+        header = f"<b>{html.escape(reply.speaker.name)}:</b> "
+        await message.answer(header + html.escape(parts[0]), parse_mode="HTML")
+        for part in parts[1:]:
+            await message.answer(part, parse_mode=None)
+
     try:
+        # Each reply is sent as soon as it exists; typing stays on meanwhile.
         async with typing_indicator(bot, message.chat.id):
-            reply = await GroupConversationService(session, ai_provider=provider).send_message(
+            await GroupConversationService(session, ai_provider=provider).send_message(
                 conversation_id=conversation_id,
                 user_id=user.id,
                 content=text,
+                on_reply=deliver,
             )
     except AIResponseError:
         await message.answer(t(language, "ai_error"))
-        return
     except ValueError:
         logger.warning("Group message could not be sent: group unavailable.")
         await message.answer(t(language, "chat_unavailable"))
-        return
-
-    if reply.speaker is None:
-        return  # the characters chose to stay silent
-
-    # One bot, several voices: the name opens the message. Only the name is
-    # HTML (escaped); the character's words stay plain text.
-    parts = split_text(reply.content)
-    header = f"<b>{html.escape(reply.speaker.name)}:</b> "
-    await message.answer(header + html.escape(parts[0]), parse_mode="HTML")
-    for part in parts[1:]:
-        await message.answer(part, parse_mode=None)
 
 
 async def unknown_command(message: Message, user: User) -> None:
