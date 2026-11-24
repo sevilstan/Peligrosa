@@ -89,6 +89,8 @@ class ChatListPage:
 class HistoryMessage:
     from_user: bool
     content: str
+    # Who spoke, for character messages in a group (None in direct chats).
+    speaker: str | None = None
 
 
 @dataclass(frozen=True)
@@ -269,11 +271,24 @@ class ChatSessionService:
             )
         ).scalars().all()
 
+        speaker_names = (
+            {
+                p.character_id: self.gallery.present(p.character).name
+                for p in conversation.participants
+            }
+            if conversation.conversation_type == "group"
+            else {}
+        )
+
         return HistoryPage(
             characters=self._members(conversation),
             title=conversation.title,
             messages=[
-                HistoryMessage(from_user=m.sender_type == "user", content=m.content)
+                HistoryMessage(
+                    from_user=m.sender_type == "user",
+                    content=m.content,
+                    speaker=speaker_names.get(m.sender_character_id),
+                )
                 for m in reversed(messages)
             ],
             page=page,

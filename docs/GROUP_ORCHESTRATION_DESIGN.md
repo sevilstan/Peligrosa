@@ -225,3 +225,12 @@ Decided by the product owner (2026-11-24):
   `relationship` categories, provenance columns, relevance-aware recall
   (half the memory budget always goes to the most important memories, the rest
   to memories matching the recent conversation topic), same prompt size.
+- **B. Group messaging, single speaker: implemented.** `GroupConversationService`
+  answers a user message with ONE character chosen by cheap rules
+  (`speaker_selection`: addressed by name/@, else the previous speaker, else the
+  first member). Prompt = the character's own prompt + a "who is in the room"
+  section; history is labelled by speaker name; the summary is labelled too.
+  One memory extraction per message is stored separately for every member
+  (`source_kind="group"`); deletion requests apply to every member. Telegram
+  replies start with the bold character name. Director call, silence and
+  multi-speaker come in C and D.
