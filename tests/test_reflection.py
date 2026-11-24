@@ -84,6 +84,7 @@ async def counter(maker, conv_id):
 def test_reflection_output_is_validated(raw, rel, mood):
     result = RelationshipReflector._parse(raw, [AMY, BOB])
     assert result is not None and (len(result[0]), len(result[1])) == (rel, mood)
+    assert result[2] == []
 
 
 @pytest.mark.parametrize("raw", ["nonsense", "", None, "[]", '"x"'])
@@ -93,7 +94,7 @@ def test_unusable_reflection_output_is_none(raw):
 
 def test_entry_counts_are_capped():
     many = json.dumps({"relationships": [{"from": "amy", "to": "bob", "trust": 1}] * 50, "moods": [{"character": "bob", "mood": "sad", "intensity": 5}] * 50})
-    rel, mood = RelationshipReflector._parse(many, [AMY, BOB])
+    rel, mood, _ = RelationshipReflector._parse(many, [AMY, BOB])
     assert len(rel) == 12 and len(mood) == 4
 
 
@@ -255,5 +256,95 @@ def test_a_boolean_intensity_is_dropped_so_it_cannot_abort_the_whole_update():
             ],
         }
     )
-    _, moods = RelationshipReflector._parse(raw, [AMY, BOB])
+    _, moods, _ = RelationshipReflector._parse(raw, [AMY, BOB])
     assert [(m.slug, mood, intensity) for m, mood, intensity, _ in moods] == [("amy", "calm", 30)]
+
+
+# ------------------------------------------------------------- event memories
+
+EVENT = {"key": "event_osman_new_job", "content": "Osman got a new job.", "importance": 8}
+
+
+def events_reply(*events):
+    return json.dumps({"relationships": [], "moods": [], "events": list(events)})
+
+
+@pytest.mark.parametrize(
+    "event, kept",
+    [
+        (EVENT, 1),
+        ({**EVENT, "importance": 99}, 1),
+        ({**EVENT, "key": "osman_new_job"}, 0),  # must start with event_
+        ({**EVENT, "key": "event_Bad Key!"}, 0),
+        ({**EVENT, "key": "event_" + "a" * 200}, 0),
+        ({**EVENT, "key": 5}, 0),
+        ({**EVENT, "content": "   "}, 0),
+        ({**EVENT, "content": 7}, 0),
+        ({**EVENT, "importance": "8"}, 0),
+        ({**EVENT, "importance": True}, 0),
+        ("junk", 0),
+    ],
+)
+def test_event_output_is_validated(event, kept):
+    _, _, events = RelationshipReflector._parse(events_reply(event), [AMY, BOB])
+    assert len(events) == kept
+    if kept:
+        assert events[0][2] <= 10 and len(events[0][1]) <= 300
+
+
+def test_event_entries_are_capped_and_long_text_is_clipped():
+    many = events_reply(*[{**EVENT, "key": f"event_{i}"} for i in range(10)])
+    assert len(RelationshipReflector._parse(many, [AMY, BOB])[2]) == 3
+    long = events_reply({**EVENT, "content": "x" * 1000})
+    assert len(RelationshipReflector._parse(long, [AMY, BOB])[2][0][1]) == 300
+
+
+def test_an_event_in_one_group_is_known_in_another_but_only_to_those_who_were_there(run_db):
+    async def scenario(maker):
+        from app.models import Character, CharacterMemory
+
+        provider = ReflectProvider(events_reply(EVENT), chat_reply="hey")
+        user_id, group_a = await talk(maker, provider, "Osman got a new job!")
+        c = await ids(maker)
+
+        async with maker() as s:
+            rows = (await s.execute(select(CharacterMemory).where(CharacterMemory.category == "event"))).scalars().all()
+        assert sorted(r.character_id for r in rows) == sorted([c["amy"], c["bob"]])  # Cy was not there
+        assert all(
+            r.user_id == user_id and r.source_kind == "group" and r.source_conversation_id == group_a
+            and r.memory_key == "event_osman_new_job" and r.importance == 8
+            for r in rows
+        )
+
+        # Group B: Amy and Cy. Amy was there and can bring it up; Cy was not.
+        async with maker() as s:
+            from app.services.chat_session_service import ChatSessionService
+
+            group_b = (await ChatSessionService(s).create_group(user_id, ["amy", "cy"])).conversation_id
+
+        quiet = PromptLog(chat_reply="hey")
+        async with maker() as s:
+            await GroupConversationService(s, quiet).send_message(group_b, user_id, "Amy, any news?")
+        assert "Osman got a new job" in quiet.chat_prompts[-1]
+
+        async with maker() as s:
+            await GroupConversationService(s, quiet).send_message(group_b, user_id, "Cy, any news?")
+        assert "Osman got a new job" not in quiet.chat_prompts[-1]
+
+    run_db(scenario)
+
+
+def test_the_same_event_again_updates_instead_of_duplicating(run_db):
+    async def scenario(maker):
+        from app.models import CharacterMemory
+
+        provider = ReflectProvider(events_reply(EVENT), chat_reply="hey")
+        user_id, conv_id = await talk(maker, provider, "Osman got a new job!")
+        provider.reflection_reply = events_reply({**EVENT, "content": "Osman started at a bank."})
+        await talk(maker, provider, "Amy, he works at a bank", conv=(user_id, conv_id))
+
+        async with maker() as s:
+            rows = (await s.execute(select(CharacterMemory).where(CharacterMemory.category == "event"))).scalars().all()
+        assert len(rows) == 2 and {r.content for r in rows} == {"Osman started at a bank."}
+
+    run_db(scenario)
