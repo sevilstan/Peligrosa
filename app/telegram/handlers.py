@@ -23,6 +23,7 @@ from app.services.chat_session_service import (
     ChatNotAvailableError,
     ChatSessionService,
 )
+from app.services.group_conversation_service import GroupConversationService
 from app.services.conversation_service import AIResponseError, ConversationService
 from app.telegram.avatars import AvatarProvider
 from app.telegram.chat_utils import edit_text_in_place, split_text, typing_indicator
@@ -125,7 +126,7 @@ async def _announce_chat(
 
     if context.is_group:
         key = "group_ready" if context.created else "group_resumed"
-        text = t(language, key, name=name, soon=t(language, "group_soon"))
+        text = t(language, key, name=name)
     else:
         key = "chat_new" if context.created else "chat_resumed"
         text = t(language, key, name=name)
@@ -234,7 +235,7 @@ def _history_text(language: str, page: HistoryPage) -> str:
         parts.append(t(language, "history_empty"))
 
     for item in page.messages:
-        who = t(language, "history_you") if item.from_user else name
+        who = t(language, "history_you") if item.from_user else html.escape(item.speaker or page.name)
         body = html.escape(shorten(item.content, _HISTORY_MESSAGE_LIMIT))
         parts.append(f"<b>{who}:</b> {body}")
 
@@ -518,9 +519,7 @@ async def chat_text(
         return
 
     if active.is_group:
-        # Nobody answers in groups yet: say so instead of saving a message
-        # that would get no reply.
-        await message.answer(t(language, "group_soon"))
+        await _group_text(message, bot, session, user, provider, active.conversation_id, text)
         return
 
     try:
@@ -540,6 +539,33 @@ async def chat_text(
 
     # Character replies are plain text: never interpreted as HTML.
     for part in split_text(reply.content):
+        await message.answer(part, parse_mode=None)
+
+
+async def _group_text(message, bot, session, user, provider, conversation_id, text) -> None:
+    language = user.language_code
+
+    try:
+        async with typing_indicator(bot, message.chat.id):
+            reply = await GroupConversationService(session, ai_provider=provider).send_message(
+                conversation_id=conversation_id,
+                user_id=user.id,
+                content=text,
+            )
+    except AIResponseError:
+        await message.answer(t(language, "ai_error"))
+        return
+    except ValueError:
+        logger.warning("Group message could not be sent: group unavailable.")
+        await message.answer(t(language, "chat_unavailable"))
+        return
+
+    # One bot, several voices: the name opens the message. Only the name is
+    # HTML (escaped); the character's words stay plain text.
+    parts = split_text(reply.content)
+    header = f"<b>{html.escape(reply.speaker.name)}:</b> "
+    await message.answer(header + html.escape(parts[0]), parse_mode="HTML")
+    for part in parts[1:]:
         await message.answer(part, parse_mode=None)
 
 

@@ -1,7 +1,7 @@
 """Persistent groups: creating, listing, switching, and the bot flow.
 
-Groups cannot answer yet (that is group orchestration); these tests pin down
-everything around that: membership rules, privacy and navigation.
+Membership rules, privacy and navigation of groups (answering is tested in
+test_group_messaging.py).
 """
 
 import uuid
@@ -224,7 +224,7 @@ def test_full_group_creation_flow(run_db, tmp_path):
         confirm = bot.session.named("EditMessageText")[0]
         assert "Amy, Cy" in confirm["text"] and "reply_markup" not in confirm
         announce = bot.session.named("SendMessage")[0]["text"]
-        assert "Amy, Cy" in announce and t("en", "group_soon") in announce
+        assert announce == t("en", "group_ready", name="Amy, Cy")
         assert [d[:6] for d in bot.callback_data()] == ["hopen:"]  # history only, no "new chat"
 
         async with maker() as s:
@@ -325,22 +325,14 @@ def test_chats_list_offers_new_group_and_shows_groups(run_db, tmp_path):
     run_db(scenario)
 
 
-def test_messages_in_a_group_are_not_sent_to_the_ai_or_saved(run_db, tmp_path):
+def test_new_chat_is_not_offered_inside_a_group(run_db, tmp_path):
     async def scenario(maker):
-        provider = ScriptedProvider()
         await add_characters(maker, FOUR)
-        bot = Harness(maker, tmp_path, provider)
+        bot = Harness(maker, tmp_path)
         await start_picker(bot)
         await bot.send(callback_update("gsel:0:amy"))
         await bot.send(callback_update("gsel:0:bob"))
         await bot.send(callback_update("gdone"))
-
-        await bot.send(message_update("hello everyone"))
-
-        assert bot.texts()[-1] == t("en", "group_soon")
-        assert provider.last_chat_prompt == ""
-        async with maker() as s:
-            assert (await s.execute(select(func.count()).select_from(Message))).scalar_one() == 0
 
         await bot.send(message_update("/new"))  # no "new chat" in a group
         assert bot.texts()[-1] == t("en", "new_chat_in_group")
@@ -364,7 +356,7 @@ def test_switching_to_a_group_from_the_list_and_turkish_texts(run_db, tmp_path):
         await bot.send(callback_update(group_button["callback_data"], lang="tr"))
 
         text = bot.texts()[-1]
-        assert text == t("tr", "group_resumed", name="Amy, Bob", soon=t("tr", "group_soon"))
+        assert text == t("tr", "group_resumed", name="Amy, Bob")
 
     run_db(scenario)
 

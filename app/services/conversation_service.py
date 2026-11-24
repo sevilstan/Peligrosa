@@ -83,6 +83,7 @@ class ConversationService:
     async def update_conversation_summary(
         self,
         conversation: Conversation,
+        speaker_names: dict | None = None,
     ):
         """Summarize older messages once enough new ones have piled up.
 
@@ -115,7 +116,7 @@ class ConversationService:
         summarizer_messages = [
             {
                 "role": "user" if message.sender_type == "user" else "assistant",
-                "content": message.content,
+                "content": self._summary_line(message, speaker_names),
             }
             for message in new_messages
         ]
@@ -155,6 +156,17 @@ class ConversationService:
         set_committed_value(conversation, "summary_message_count", len(messages))
         logger.info("Conversation summary updated (%d messages).", len(messages))
 
+    @staticmethod
+    def _summary_line(message, speaker_names: dict | None) -> str:
+        """In a group, say WHO spoke: several characters share one "assistant"
+        role, and a summary that mixes them up would give one character
+        another's words."""
+        if speaker_names is None or message.sender_type == "user":
+            return message.content
+
+        name = speaker_names.get(message.sender_character_id, "Someone")
+        return f"{name}: {message.content}"
+
     async def send_message(
         self,
         conversation_id,
@@ -182,12 +194,12 @@ class ConversationService:
         )
         await self.session.commit()
 
-        memories_ok = await self._update_memories(
-            user_id, character, content, conversation_id=conversation_id
+        memories_ok = await self.update_memories(
+            user_id, [character], content, conversation_id=conversation_id
         )
 
         if not memories_ok:
-            # The rollback inside _update_memories expired our ORM objects.
+            # The rollback inside update_memories expired our ORM objects.
             conversation, character = await self._load_direct_conversation(
                 conversation_id, user_id
             )
@@ -221,7 +233,7 @@ class ConversationService:
             context_text=recent_user_text[-1500:],
         )
 
-        reply = await self._generate_reply(system_prompt, ai_messages)
+        reply = await self.generate_reply(system_prompt, ai_messages)
 
         character_message = Message(
             conversation_id=conversation.id,
@@ -332,10 +344,21 @@ class ConversationService:
 
         return conversation, conversation.participants[0].character
 
-    async def _update_memories(
-        self, user_id, character, content, conversation_id=None
+    async def update_memories(
+        self,
+        user_id,
+        characters,
+        content,
+        conversation_id=None,
+        source_kind="direct",
     ) -> bool:
-        """Extract and store this character's memories from the user message.
+        """Extract memories from the user message ONCE and store them for
+        every given character, each in its own memory space.
+
+        A direct chat passes one character; a group passes all its members,
+        so each of them independently remembers what the user said in front
+        of them (same facts, separate records). A deletion request applies to
+        all of them for the same reason.
 
         Memory is secondary to the conversation, so a failure here is logged
         and swallowed. Returns False if the session had to be rolled back.
@@ -352,37 +375,38 @@ class ConversationService:
             return True
 
         memory_service = CharacterMemoryService(self.session)
-        character_id = character.id
+        character_ids = [character.id for character in characters]
 
         try:
             for memory in extracted_memories:
                 operation = memory["operation"]
                 memory_key = memory["memory_key"]
 
-                if operation == "delete":
-                    deleted = await memory_service.delete_memory_by_key(
-                        user_id=user_id,
-                        character_id=character_id,
-                        memory_key=memory_key,
-                    )
+                for character_id in character_ids:
+                    if operation == "delete":
+                        deleted = await memory_service.delete_memory_by_key(
+                            user_id=user_id,
+                            character_id=character_id,
+                            memory_key=memory_key,
+                        )
 
-                    if deleted:
-                        logger.info("Memory deleted: %s", memory_key)
+                        if deleted:
+                            logger.info("Memory deleted: %s", memory_key)
 
-                elif operation == "upsert":
-                    await memory_service.add_memory(
-                        user_id=user_id,
-                        character_id=character_id,
-                        category=memory["category"],
-                        content=memory["content"],
-                        importance=memory["importance"],
-                        confidence=memory["confidence"],
-                        memory_key=memory_key,
-                        source_conversation_id=conversation_id,
-                        source_kind="direct",
-                    )
+                    elif operation == "upsert":
+                        await memory_service.add_memory(
+                            user_id=user_id,
+                            character_id=character_id,
+                            category=memory["category"],
+                            content=memory["content"],
+                            importance=memory["importance"],
+                            confidence=memory["confidence"],
+                            memory_key=memory_key,
+                            source_conversation_id=conversation_id,
+                            source_kind=source_kind,
+                        )
 
-                    logger.info("Memory saved or updated: %s", memory_key)
+                        logger.info("Memory saved or updated: %s", memory_key)
 
             await self.session.commit()
             return True
@@ -395,7 +419,7 @@ class ConversationService:
             await self.session.rollback()
             return False
 
-    async def _generate_reply(self, system_prompt, ai_messages) -> str:
+    async def generate_reply(self, system_prompt, ai_messages) -> str:
         try:
             reply = await self.ai_provider.generate_response(
                 system_prompt=system_prompt,
