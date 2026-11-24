@@ -1,0 +1,33 @@
+# Bot + PostgreSQL on one machine.
+#   cp .env.example .env   (fill TELEGRAM_BOT_TOKEN, GROQ_API_KEY, POSTGRES_PASSWORD)
+#   docker compose up -d --build
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: peligrosa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: peligrosa
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peligrosa -d peligrosa"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # No published port: only the bot (same compose network) can reach it.
+
+  bot:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://peligrosa:${POSTGRES_PASSWORD}@db:5432/peligrosa
+
+volumes:
+  pgdata:

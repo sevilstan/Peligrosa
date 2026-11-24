@@ -1,0 +1,78 @@
+# Running Peligrosa (Telegram bot)
+
+The bot uses long polling: it needs outbound internet only (Telegram, Groq),
+no public address, no webhook, no open port.
+
+## 1. What you need
+
+- A Telegram bot token (BotFather).
+- A Groq API key.
+- A machine with Docker (any small VPS is enough to start).
+
+## 2. First start
+
+```bash
+git clone https://github.com/sevilstan/Peligrosa.git && cd Peligrosa
+cp .env.example .env
+# edit .env: TELEGRAM_BOT_TOKEN, GROQ_API_KEY, POSTGRES_PASSWORD
+docker compose up -d --build
+docker compose logs -f bot
+```
+
+On every start the bot container first runs `alembic upgrade head` (applies
+new migrations, never destructive on its own), then starts the bot. Characters
+come from the `characters/` YAML files and the database rows (seed the
+characters table as you did in development).
+
+> `docker-compose.yml` and the Dockerfile were written but **not built or run
+> in the development session** (no Docker daemon there). Run the first start
+> yourself and watch the log before announcing the bot.
+
+## 3. Updating
+
+```bash
+git pull
+docker compose up -d --build   # migrations run automatically
+```
+
+## 4. Rate limits and cost (important before real users)
+
+All AI calls go through one limiter (`AI_MAX_REQUESTS_PER_MINUTE`, default 25
+for Groq's free 30/min). Extra requests wait in line (the user sees "typing...");
+after `AI_MAX_QUEUE_WAIT_SECONDS` (60) the user gets "try again".
+
+Calls per user message: direct chat about 2-3 (reply, memory extraction,
+sometimes a summary). Group chat with 4 members: up to 1 speaker choice + 4
+replies + 1 memory extraction, plus a feelings reflection every 8 messages and
+a character-to-character exchange in about 1 of 4 messages (up to 3 more calls).
+
+So the free tier supports **a few active group users at a time**. Before a
+public launch: a paid tier (raise the limits), or a cheaper model for the small
+helper calls. Limits are per process: run ONE bot process per API key.
+
+## 5. Database connections
+
+A reply keeps its database connection while the AI answers, so
+`DB_POOL_SIZE + DB_MAX_OVERFLOW` (default 10 + 20) is the number of
+conversations that can be in flight. PostgreSQL's default limit is 100
+connections; keep the sum well below it.
+
+## 6. Backups
+
+User conversations and memories live in the `pgdata` volume. Back it up:
+
+```bash
+docker compose exec db pg_dump -U peligrosa peligrosa | gzip > peligrosa-$(date +%F).sql.gz
+```
+
+## 7. Secrets and logs
+
+- `.env` is never committed. Rotate a token that was ever pasted into a chat or log.
+- Logs contain error types and counts, never message text or API keys.
+  Keep `DEBUG=False` and `SQL_ECHO=False` in production.
+
+## 8. Not done yet (decisions for the owner)
+
+- Per-user message limits (anti-abuse, daily free quota, payment).
+- Monitoring/alerts (the container restarts itself; nobody is told).
+- A second process or webhook mode (needed only at larger scale).
