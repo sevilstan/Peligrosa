@@ -44,6 +44,26 @@ def build_initiative_runner(bot, session_maker, provider, locks) -> InitiativeRu
     )
 
 
+async def sync_characters_on_start(session_maker) -> None:
+    """New YAML files become characters in the database at every start.
+
+    Best effort: a problem here must never keep the bot from starting.
+    """
+    from app.services.character_sync_service import CharacterSyncService
+
+    try:
+        async with session_maker() as session:
+            result = await CharacterSyncService(session).sync()
+    except Exception as exc:
+        logger.error("Could not sync characters: %s", type(exc).__name__)
+        return
+
+    if result.created:
+        logger.info("New characters available: %s", ", ".join(result.created))
+    for slug in result.failed:
+        logger.error("Character '%s' has an invalid definition and was skipped.", slug)
+
+
 def build_ai_provider():
     """The provider the bot talks to: Groq, kept inside its request limits.
 
@@ -134,6 +154,8 @@ async def run() -> None:
         raise RuntimeError("DATABASE_URL is not set. Add it to your .env file.")
 
     provider = build_ai_provider()
+
+    await sync_characters_on_start(SessionLocal)
 
     bot = build_bot(settings.TELEGRAM_BOT_TOKEN)
     locks = UserLocks()  # shared: a character never talks over a live chat

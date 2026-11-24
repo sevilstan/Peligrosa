@@ -21,8 +21,10 @@ docker compose logs -f bot
 
 On every start the bot container first runs `alembic upgrade head` (applies
 new migrations, never destructive on its own), then starts the bot. Characters
-come from the `characters/` YAML files and the database rows (seed the
-characters table as you did in development).
+come from the `characters/` YAML files: every time the bot starts it creates
+the database row of each new YAML file (so it shows up in Telegram) and
+refreshes the texts of existing ones. A character you deactivated stays
+inactive; nothing is ever deleted. To do it by hand: `python -m scripts.sync_characters`.
 
 > `docker-compose.yml` and the Dockerfile were written but **not built or run
 > in the development session** (no Docker daemon there). Run the first start
