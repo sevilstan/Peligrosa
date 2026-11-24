@@ -14,8 +14,13 @@ from app.services.character_gallery_service import CharacterGalleryService
 from app.services.conversation_service import AIResponseError, RECENT_MESSAGE_LIMIT, ConversationService
 from app.services.group_context_builder import (
     DEFAULT_USER_NAME,
+    character_state_text,
     group_instructions,
     label_messages,
+)
+from app.services.character_state_service import (
+    CharacterEmotionService,
+    CharacterRelationshipService,
 )
 from app.services.speaker_director import SILENCE, SpeakerDirector
 from app.services.speaker_selection import GroupMember, select_speaker
@@ -247,6 +252,15 @@ class GroupConversationService:
             context_text=recent_user_text[-_USER_TEXT_FOR_RECALL:],
         )
         system_prompt = f"{base_prompt}\n\n{group_instructions(speaker, members, user_name)}"
+
+        # Only THIS speaker's own feelings: user_id AND character_id.
+        feelings = character_state_text(
+            await CharacterEmotionService(self.session).get_emotion(user_id, speaker.id),
+            await self._relationships_by_name(user_id, speaker, members),
+        )
+        if feelings:
+            system_prompt += f"\n\n{feelings}"
+
         if directive:
             system_prompt += f"\n\nRIGHT NOW\n{directive}"
 
@@ -255,6 +269,13 @@ class GroupConversationService:
             label_messages(unsummarized, speaker.id, names, user_name),
         )
         return self._without_own_name(reply, speaker.name)
+
+    async def _relationships_by_name(self, user_id, speaker, members) -> dict:
+        others = {m.id: m.name for m in members if m.id != speaker.id}
+        rows = await CharacterRelationshipService(self.session).get_for_speaker(
+            user_id, speaker.id, list(others)
+        )
+        return {others[other_id]: row for other_id, row in rows.items()}
 
     @staticmethod
     def _without_own_name(reply: str, name: str) -> str:

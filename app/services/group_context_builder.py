@@ -64,3 +64,65 @@ def label_messages(
             labelled.append({"role": "user", "content": f"{name}: {message.content}"})
 
     return labelled
+
+
+# (dimension, threshold, phrase) -> first matching phrase per dimension.
+_HIGH = {
+    "trust": (70, "you trust them"),
+    "affection": (70, "you are fond of them"),
+    "respect": (70, "you respect them"),
+    "jealousy": (30, "you feel jealous of them"),
+    "rivalry": (30, "you see them as a rival"),
+    "familiarity": (60, "you know them well"),
+    "tension": (30, "things are tense between you"),
+}
+_LOW = {
+    "trust": (30, "you do not trust them"),
+    "affection": (30, "you feel cold towards them"),
+    "respect": (30, "you do not think much of them"),
+}
+
+
+def relationship_phrases(relationship) -> list[str]:
+    """Words for the notable feelings in a relationship row (none = neutral)."""
+    phrases = []
+
+    for name, (threshold, phrase) in _HIGH.items():
+        if getattr(relationship, name) >= threshold:
+            phrases.append(phrase)
+    for name, (threshold, phrase) in _LOW.items():
+        if getattr(relationship, name) <= threshold:
+            phrases.append(phrase)
+
+    return phrases
+
+
+def character_state_text(emotion, relationships_by_name: dict) -> str:
+    """Private feelings of ONE character, as behaviour hints for its prompt.
+
+    emotion: Emotion or None; relationships_by_name: {other name: row}.
+    Returns "" when there is nothing notable. Numbers are never included.
+    """
+    lines = []
+
+    if emotion is not None:
+        strength = "strongly " if emotion.intensity >= 70 else ""
+        mood = f"Your current mood: you are {strength}{emotion.mood}"
+        mood += f" ({emotion.reason})." if emotion.reason else "."
+        lines.append(mood)
+
+    for name, relationship in relationships_by_name.items():
+        phrases = relationship_phrases(relationship)
+        if phrases:
+            lines.append(f"About {name}: " + ", ".join(phrases) + ".")
+
+    if not lines:
+        return ""
+
+    return (
+        "YOUR FEELINGS (private)\n"
+        + "\n".join(f"- {line}" for line in lines)
+        + "\nLet these shape your tone and what you say, naturally. Never "
+        "mention scores or list your feelings, and do not reset your mood "
+        "just because the user changed the subject."
+    )

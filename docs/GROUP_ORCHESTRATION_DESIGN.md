@@ -260,3 +260,13 @@ Decided by the product owner (2026-11-24):
   exchange (2 messages) per user message, never a chain, inside a total cap of
   6 messages (`MAX_TOTAL_REPLIES_PER_TURN`). Any failure just means no
   follow-up. Extra cost: ~0.25 check + ~0.1 x 2 replies per turn on average.
+- **E1. Relationships and moods, storage + use: implemented (nothing writes
+  them from conversations yet).** Tables `character_relationships`
+  (directional, 7 values 0..100) and `character_emotions` (one mood per
+  character, fades 10 points/hour, computed on read), both per user, with a
+  `CharacterRelationshipService` / `CharacterEmotionService` (updates are
+  clamped to +-5 per step, model input untrusted). In a group, a speaker's prompt
+  gets a private "YOUR FEELINGS" section built ONLY from its own rows
+  (behaviour hints, never numbers). Removing a character deletes its feelings
+  and everyone's feelings about it for that user. **E2 (next): the batched
+  reflection call that actually updates these from what happens in the chat.**

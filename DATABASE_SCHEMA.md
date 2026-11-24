@@ -200,3 +200,45 @@ Provenance only (where the character learned it): memories stay per user + chara
 
 **Index:** `uq_character_memory_user_character_key` - `['user_id', 'character_id', 'memory_key']`
 
+
+
+### `character_relationships`
+
+How one character feels about another, per user (directional: A->B and B->A are separate rows). Values 0..100, never shown to the user. Migration `c41d7e2a9b10`.
+
+| Column | Type | Nullable | Default |
+|---|---|---|---|
+| `user_id` | `UUID` | False | `None` |
+| `character_id` | `UUID` | False | `None` |
+| `other_character_id` | `UUID` | False | `None` |
+| `trust` | `SMALLINT` | False | `50` |
+| `affection` | `SMALLINT` | False | `50` |
+| `respect` | `SMALLINT` | False | `50` |
+| `jealousy` | `SMALLINT` | False | `0` |
+| `rivalry` | `SMALLINT` | False | `0` |
+| `familiarity` | `SMALLINT` | False | `0` |
+| `tension` | `SMALLINT` | False | `0` |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | False | `now()` |
+
+**Primary Key:** `['user_id', 'character_id', 'other_character_id']`
+
+**Check:** every value between 0 and 100; `character_id <> other_character_id`. All three foreign keys `ON DELETE CASCADE`.
+
+
+
+### `character_emotions`
+
+A character's current mood per user (one row). Fades with time when read.
+
+| Column | Type | Nullable | Default |
+|---|---|---|---|
+| `user_id` | `UUID` | False | `None` |
+| `character_id` | `UUID` | False | `None` |
+| `mood` | `VARCHAR(30)` | False | `None` |
+| `intensity` | `SMALLINT` | False | `None` |
+| `reason` | `TEXT` | True | `None` |
+| `updated_at` | `TIMESTAMP WITH TIME ZONE` | False | `now()` |
+
+**Primary Key:** `['user_id', 'character_id']`
+
+**Check:** `intensity` between 0 and 100. Foreign keys `ON DELETE CASCADE`.

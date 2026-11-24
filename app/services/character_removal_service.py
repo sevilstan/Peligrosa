@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.character import Character
+from app.models.character_emotion import CharacterEmotion
 from app.models.character_memory import CharacterMemory
+from app.models.character_relationship import CharacterRelationship
 from app.models.conversation import Conversation
 from app.models.conversation_participant import ConversationParticipant
 from app.services.character_gallery_service import CharacterGalleryService, GalleryCharacter
@@ -34,7 +36,8 @@ class CharacterRemovalService:
     The character itself is platform-managed and stays in the gallery; what
     goes is everything between this user and the character:
     - their direct chats with it (messages included);
-    - the memories it holds about them (user_id + character_id);
+    - the memories it holds about them (user_id + character_id), its mood and
+      its relationships with other characters (both directions);
     - its place in their groups. A group left with fewer than 2 characters
       is deleted; other groups, and other characters' memories, are kept.
 
@@ -91,6 +94,24 @@ class CharacterRemovalService:
                 delete(CharacterMemory).where(
                     CharacterMemory.user_id == user_id,
                     CharacterMemory.character_id == character.id,
+                )
+            )
+
+            # Its feelings for this user's world, in both directions: what it
+            # feels about others and what the others feel about it.
+            await self.session.execute(
+                delete(CharacterRelationship).where(
+                    CharacterRelationship.user_id == user_id,
+                    or_(
+                        CharacterRelationship.character_id == character.id,
+                        CharacterRelationship.other_character_id == character.id,
+                    ),
+                )
+            )
+            await self.session.execute(
+                delete(CharacterEmotion).where(
+                    CharacterEmotion.user_id == user_id,
+                    CharacterEmotion.character_id == character.id,
                 )
             )
 
