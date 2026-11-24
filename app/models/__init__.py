@@ -6,3 +6,5 @@ from app.models.conversation_participant import ConversationParticipant
 from app.models.message import Message
 from app.models.user_memory import UserMemory
 from app.models.character_memory import CharacterMemory
+from app.models.character_relationship import CharacterRelationship
+from app.models.character_emotion import CharacterEmotion
