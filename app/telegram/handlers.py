@@ -560,6 +560,9 @@ async def _group_text(message, bot, session, user, provider, conversation_id, te
         await message.answer(t(language, "chat_unavailable"))
         return
 
+    if reply.speaker is None:
+        return  # the characters chose to stay silent
+
     # One bot, several voices: the name opens the message. Only the name is
     # HTML (escaped); the character's words stay plain text.
     parts = split_text(reply.content)

@@ -289,3 +289,135 @@ def test_bot_answers_in_a_group_with_the_speakers_name(run_db, tmp_path):
         await bot.send(callback_update("hopen:" + "x"))  # unknown id must not crash the bot
 
     run_db(scenario)
+
+
+# ---------------------------------------------------------------- director
+
+from app.services.speaker_director import (  # noqa: E402
+    DIRECTOR_MARKER,
+    SILENCE,
+    UNDECIDED,
+    SpeakerDirector,
+)
+
+
+class DirectorProvider(PromptLog):
+    def __init__(self, director_reply='{"speaker": "bob"}', director_fails=False, **kw):
+        super().__init__(**kw)
+        self.director_reply = director_reply
+        self.director_fails = director_fails
+        self.director_calls = 0
+        self.director_prompt = ""
+        self.director_input = ""
+
+    async def generate_response(self, system_prompt, messages):
+        if DIRECTOR_MARKER in system_prompt.lower():
+            self.director_calls += 1
+            self.director_prompt = system_prompt
+            self.director_input = messages[0]["content"]
+            if self.director_fails:
+                raise RuntimeError("director is down")
+            return self.director_reply
+        return await super().generate_response(system_prompt, messages)
+
+
+AMY, BOB = member("Amy"), member("Bob")
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ('{"speaker": "bob"}', BOB),
+        ('```json\n{"speaker": "amy"}\n```', AMY),
+        ('{"speaker": null}', SILENCE),
+        ('{"speaker": "ghost"}', UNDECIDED),
+        ('{"speaker": 7}', UNDECIDED),
+        ('{"who": "bob"}', UNDECIDED),
+        ('["bob"]', UNDECIDED),
+        ("bob", UNDECIDED),
+        ("", UNDECIDED),
+        (None, UNDECIDED),
+    ],
+)
+def test_director_output_is_validated(raw, expected):
+    assert SpeakerDirector._parse(raw, [AMY, BOB]) is expected
+
+
+def test_director_picks_the_speaker_when_nobody_is_addressed(run_db):
+    async def scenario(maker):
+        await add_characters(maker, TRIO)
+        user_id, conv_id = await make_group(maker)
+        provider = DirectorProvider('{"speaker": "bob"}', chat_reply="hey")
+
+        async with maker() as s:
+            reply = await GroupConversationService(s, provider).send_message(conv_id, user_id, "what a day")
+
+        assert (reply.speaker.name, reply.reason) == ("Bob", "director")
+        assert provider.director_calls == 1
+        assert "Ada: what a day" in provider.director_input
+        assert 'slug "amy"' in provider.director_prompt
+
+    run_db(scenario)
+
+
+def test_addressed_messages_do_not_call_the_director(run_db):
+    async def scenario(maker):
+        await add_characters(maker, TRIO)
+        user_id, conv_id = await make_group(maker)
+        provider = DirectorProvider('{"speaker": "bob"}')
+
+        async with maker() as s:
+            reply = await GroupConversationService(s, provider).send_message(conv_id, user_id, "Amy, hello")
+
+        assert reply.speaker.name == "Amy" and provider.director_calls == 0
+
+    run_db(scenario)
+
+
+def test_silence_saves_the_user_message_but_no_character_reply(run_db):
+    async def scenario(maker):
+        await add_characters(maker, TRIO)
+        user_id, conv_id = await make_group(maker)
+        provider = DirectorProvider('{"speaker": null}')
+
+        async with maker() as s:
+            reply = await GroupConversationService(s, provider).send_message(conv_id, user_id, "ok thanks")
+
+        assert (reply.speaker, reply.content, reply.reason) == (None, None, "silence")
+        assert provider.chat_prompts == []
+        async with maker() as s:
+            rows = (await s.execute(select(Message))).scalars().all()
+        assert [r.sender_type for r in rows] == ["user"]
+
+    run_db(scenario)
+
+
+@pytest.mark.parametrize("kwargs", [{"director_reply": '{"speaker": "ghost"}'}, {"director_reply": "nonsense"}, {"director_fails": True}])
+def test_a_bad_director_falls_back_to_the_rules(run_db, kwargs):
+    async def scenario(maker):
+        await add_characters(maker, TRIO)
+        user_id, conv_id = await make_group(maker)
+        provider = DirectorProvider(chat_reply="hey", **kwargs)
+
+        async with maker() as s:
+            reply = await GroupConversationService(s, provider).send_message(conv_id, user_id, "what a day")
+
+        assert (reply.speaker.name, reply.reason) == ("Amy", "default")  # a reply is never lost
+
+    run_db(scenario)
+
+
+def test_bot_stays_quiet_when_the_director_chooses_silence(run_db, tmp_path):
+    async def scenario(maker):
+        await add_characters(maker, TRIO)
+        bot = Harness(maker, tmp_path, DirectorProvider('{"speaker": null}'))
+        await bot.send(message_update("/newgroup"))
+        await bot.send(callback_update("gsel:0:amy"))
+        await bot.send(callback_update("gsel:0:bob"))
+        await bot.send(callback_update("gdone"))
+        before = len(bot.session.named("SendMessage"))
+
+        await bot.send(message_update("ok thanks"))
+        assert len(bot.session.named("SendMessage")) == before
+
+    run_db(scenario)
