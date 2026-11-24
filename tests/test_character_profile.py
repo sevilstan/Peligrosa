@@ -213,14 +213,17 @@ def test_the_character_knows_the_facts_on_her_card():
     prompt = CharacterPromptBuilder().build(make_character(FULL))
     assert "Age: 28" in prompt and "City: İstanbul" in prompt and "Occupation: Fotoğrafçı" in prompt
     assert "Life story: İzmir de büyüdü, İstanbul a taşındı." in prompt
+    assert "Key traits: Gizemli, Esprili" in prompt
     assert prompt.index("Age: 28") < prompt.index("PERSONALITY")  # part of her identity
+    assert prompt.index("Key traits:") < prompt.index("PERSONALITY")
 
 
 def test_no_profile_means_the_prompt_is_unchanged():
     without = CharacterPromptBuilder().build(make_character(None))
     legacy = CharacterPromptBuilder().build(SimpleNamespace(name="Elena", description="d", personality="p", system_prompt="s"))
     assert without == legacy and "Age:" not in without and "Life story" not in without
-    assert "Age:" not in CharacterPromptBuilder().build(make_character(CharacterProfile(city="X")))
+    only_city = CharacterPromptBuilder().build(make_character(CharacterProfile(city="X")))
+    assert "Age:" not in only_city and "Key traits" not in only_city
 
 
 def test_a_long_description_is_shortened_not_dropped():

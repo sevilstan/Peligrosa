@@ -92,6 +92,8 @@ class CharacterPromptBuilder:
                 lines.append(f"Occupation: {profile.occupation}")
             if profile.bio:
                 lines.append(f"Life story: {profile.bio}")
+            if profile.highlights:
+                lines.append("Key traits: " + ", ".join(profile.highlights))
 
         if not lines:
             return ""
