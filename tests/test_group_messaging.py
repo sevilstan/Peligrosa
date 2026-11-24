@@ -519,3 +519,175 @@ def test_instructions_tell_a_character_not_to_repeat_the_others():
 
     text = group_instructions(AMY, [AMY, BOB], "Ada")
     assert "do not repeat their point" in text and "Bob" in text
+
+
+# --------------------------------------------------- follow-ups (AI to AI)
+
+
+class FollowupProvider(DirectorProvider):
+    def __init__(self, followup_reply='{"from": "amy", "to": "bob"}', **kw):
+        super().__init__(**kw)
+        self.followup_reply = followup_reply
+        self.followup_calls = 0
+
+    async def generate_response(self, system_prompt, messages):
+        if "side conversation" in system_prompt.lower():
+            self.followup_calls += 1
+            return self.followup_reply
+        return await super().generate_response(system_prompt, messages)
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ('{"from": "amy", "to": "bob"}', (AMY, BOB)),
+        ('```json\n{"from": "bob", "to": "amy"}\n```', (BOB, AMY)),
+        ('{"from": null}', None),
+        ('{"from": "amy", "to": "amy"}', None),
+        ('{"from": "amy", "to": "ghost"}', None),
+        ('{"from": "amy"}', None),
+        ('{"from": 1, "to": 2}', None),
+        ("[]", None),
+        ("nonsense", None),
+        (None, None),
+    ],
+)
+def test_followup_output_is_validated(raw, expected):
+    assert SpeakerDirector._parse_followup(raw, [AMY, BOB]) == expected
+
+
+async def _talk(maker, provider, text="Amy, hello", **kwargs):
+    from app.models import Character
+
+    async with maker() as s:
+        seeded = (await s.execute(select(Character.id).limit(1))).first() is not None
+    if not seeded:
+        await add_characters(maker, TRIO)
+    user_id, conv_id = await make_group(maker)
+    async with maker() as s:
+        replies = await GroupConversationService(s, provider, **kwargs).send_message(conv_id, user_id, text)
+    return user_id, conv_id, replies
+
+
+def test_followup_is_a_question_and_an_answer_between_characters(run_db):
+    async def scenario(maker):
+        provider = FollowupProvider(chat_reply="hey")
+        _, _, replies = await _talk(maker, provider, followup_chance=1.0)
+
+        assert [(r.speaker.name, r.reason) for r in replies] == [
+            ("Amy", "addressed"),
+            ("Amy", "followup"),
+            ("Bob", "followup"),
+        ]
+        assert provider.followup_calls == 1
+        assert "RIGHT NOW" in provider.chat_prompts[-2] and "directly to Bob" in provider.chat_prompts[-2]
+        assert "Amy just spoke to you" in provider.chat_prompts[-1]
+        assert provider.chat_messages[-1][-1] == {"role": "user", "content": "Amy: hey"}
+
+    run_db(scenario)
+
+
+def test_followup_is_off_by_default_and_respects_the_chance(run_db):
+    async def scenario(maker):
+        provider = FollowupProvider(chat_reply="hey")
+        _, _, replies = await _talk(maker, provider)  # default chance 0
+        assert len(replies) == 1 and provider.followup_calls == 0
+
+    run_db(scenario)
+
+
+def test_followup_chance_gates_the_check(run_db):
+    async def scenario_chance(maker):
+        provider = FollowupProvider(chat_reply="hey")
+        _, _, replies = await _talk(maker, provider, followup_chance=0.25, rng=lambda: 0.5)
+        assert len(replies) == 1 and provider.followup_calls == 0  # 0.5 >= 0.25
+
+        provider = FollowupProvider(chat_reply="hey")
+        _, _, replies = await _talk(maker, provider, text="Bob, hi", followup_chance=0.25, rng=lambda: 0.1)
+        assert provider.followup_calls == 1
+
+    run_db(scenario_chance)
+
+
+def test_no_followup_when_the_director_says_no_or_fails(run_db):
+    async def scenario(maker):
+        for reply in ('{"from": null}', "nonsense", '{"from": "amy", "to": "amy"}'):
+            provider = FollowupProvider(followup_reply=reply, chat_reply="hey")
+            _, _, replies = await _talk(maker, provider, followup_chance=1.0)
+            assert [r.reason for r in replies] == ["addressed"]
+
+    run_db(scenario)
+
+
+def test_followup_respects_the_total_reply_cap(run_db, monkeypatch):
+    async def scenario(maker):
+        import app.services.group_conversation_service as module
+
+        monkeypatch.setattr(module, "MAX_TOTAL_REPLIES_PER_TURN", 2)
+        provider = FollowupProvider(chat_reply="hey")
+        _, _, replies = await _talk(maker, provider, followup_chance=1.0)
+        # 1 reply + a 2-message exchange would be 3 > 2: no follow-up, no extra call.
+        assert len(replies) == 1 and provider.followup_calls == 0
+
+    run_db(scenario)
+
+
+def test_a_failing_followup_keeps_the_real_replies(run_db):
+    async def scenario(maker):
+        class Fails(FollowupProvider):
+            chats = 0
+
+            async def generate_response(self, system_prompt, messages):
+                low = system_prompt.lower()
+                if "long-term" not in low and DIRECTOR_MARKER not in low:
+                    Fails.chats += 1
+                    if Fails.chats == 2:  # Amy's reply works, the follow-up fails
+                        raise RuntimeError("down")
+                return await super().generate_response(system_prompt, messages)
+
+        _, _, replies = await _talk(maker, Fails(chat_reply="hey"), followup_chance=1.0)
+        assert [r.reason for r in replies] == ["addressed"]
+
+    run_db(scenario)
+
+
+def test_followup_messages_are_delivered_and_saved(run_db):
+    async def scenario(maker):
+        provider = FollowupProvider(chat_reply="hey")
+        await add_characters(maker, TRIO)
+        user_id, conv_id = await make_group(maker)
+        delivered = []
+
+        async def on_reply(reply):
+            delivered.append((reply.speaker.name, reply.reason))
+
+        async with maker() as s:
+            await GroupConversationService(s, provider, followup_chance=1.0).send_message(
+                conv_id, user_id, "Amy, hello", on_reply=on_reply
+            )
+        assert delivered == [("Amy", "addressed"), ("Amy", "followup"), ("Bob", "followup")]
+        async with maker() as s:
+            rows = (await s.execute(select(Message).order_by(Message.created_at, Message.id))).scalars().all()
+        assert [r.sender_type for r in rows] == ["user", "character", "character", "character"]
+
+    run_db(scenario)
+
+
+def test_telegram_flow_enables_followups(run_db, tmp_path, monkeypatch):
+    import app.telegram.handlers as handlers
+
+    monkeypatch.setattr(handlers, "FOLLOWUP_CHANCE", 1.0)
+
+    async def scenario(maker):
+        await add_characters(maker, TRIO)
+        bot = Harness(maker, tmp_path, FollowupProvider(chat_reply="hey"))
+        await bot.send(message_update("/newgroup"))
+        await bot.send(callback_update("gsel:0:amy"))
+        await bot.send(callback_update("gsel:0:bob"))
+        await bot.send(callback_update("gdone"))
+        before = len(bot.session.named("SendMessage"))
+
+        await bot.send(message_update("Amy, hello"))
+        assert bot.texts()[before:] == ["<b>Amy:</b> hey", "<b>Amy:</b> hey", "<b>Bob:</b> hey"]
+
+    run_db(scenario)
