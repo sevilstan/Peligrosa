@@ -51,12 +51,16 @@ def build_ai_provider():
     """
     from app.providers.groq_provider import GroqProvider
     from app.providers.rate_limited_provider import RateLimitedProvider
+    from app.providers.usage_tracking_provider import UsageTrackingProvider
 
-    return RateLimitedProvider(
-        GroqProvider(),
-        max_per_minute=settings.AI_MAX_REQUESTS_PER_MINUTE,
-        max_concurrent=settings.AI_MAX_CONCURRENT_REQUESTS,
-        max_wait=settings.AI_MAX_QUEUE_WAIT_SECONDS,
+    # Outermost, so calls that fail while waiting for a slot are counted too.
+    return UsageTrackingProvider(
+        RateLimitedProvider(
+            GroqProvider(),
+            max_per_minute=settings.AI_MAX_REQUESTS_PER_MINUTE,
+            max_concurrent=settings.AI_MAX_CONCURRENT_REQUESTS,
+            max_wait=settings.AI_MAX_QUEUE_WAIT_SECONDS,
+        )
     )
 
 
@@ -139,6 +143,14 @@ async def run() -> None:
     locks = UserLocks()  # shared: a character never talks over a live chat
     dispatcher = build_dispatcher(SessionLocal, ai_provider=provider, locks=locks)
 
+    health_runner = None
+    if settings.HEALTH_PORT:
+        from app.telegram.health import start_health_server
+
+        health_runner = await start_health_server(
+            SessionLocal, provider, settings.HEALTH_HOST, settings.HEALTH_PORT
+        )
+
     initiative_task = None
     if settings.INITIATIVE_ENABLED:
         initiative_task = asyncio.create_task(
@@ -156,4 +168,6 @@ async def run() -> None:
             initiative_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await initiative_task
+        if health_runner is not None:
+            await health_runner.cleanup()
         await bot.session.close()

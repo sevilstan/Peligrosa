@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     AI_MAX_CONCURRENT_REQUESTS: int = 4
     AI_MAX_QUEUE_WAIT_SECONDS: float = 60.0
 
+    # Health endpoint (GET /health, /stats) for uptime checks. 0 = off.
+    HEALTH_PORT: int = 0
+    HEALTH_HOST: str = "127.0.0.1"
+
     # Database connections. A chat reply keeps its connection while the AI
     # answers, so this bounds how many conversations can be in flight.
     DB_POOL_SIZE: int = 10
