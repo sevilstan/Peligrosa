@@ -80,6 +80,21 @@ class CharacterPromptBuilder:
         if description:
             lines.append(description)
 
+        # The facts on the character's card are facts about HER, so she must
+        # know them (otherwise she could state another age than her card).
+        profile = getattr(character, "profile", None)
+        if profile is not None:
+            if profile.age:
+                lines.append(f"Age: {profile.age}")
+            if profile.city:
+                lines.append(f"City: {profile.city}")
+            if profile.occupation:
+                lines.append(f"Occupation: {profile.occupation}")
+            if profile.bio:
+                lines.append(f"Life story: {profile.bio}")
+            if profile.highlights:
+                lines.append("Key traits: " + ", ".join(profile.highlights))
+
         if not lines:
             return ""
 

@@ -5,6 +5,18 @@ slug: "character-slug"
 description: >
   A concise description of the character's identity.
 
+# Optional. Shown on the character card and known to the character herself.
+# Age must be 18 or more. Leave out whatever you do not want to define.
+profile:
+  age: 27
+  city: "City"
+  occupation: "Job or what she does"
+  bio: >
+    A short life story: where she grew up, what shaped her, what she wants.
+  highlights:            # up to 5 short key traits
+    - "Curious"
+    - "Witty"
+
 personality:
   core_traits:
     - "A defining personality trait"

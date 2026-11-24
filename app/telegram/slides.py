@@ -18,7 +18,9 @@ from app.telegram.avatars import AvatarProvider, AvatarSource
 logger = logging.getLogger(__name__)
 
 # A photo caption is limited to 1024 characters.
-_DESCRIPTION_LIMIT = 700
+_CAPTION_LIMIT = 1024
+_DESCRIPTION_LIMIT = 300
+_BIO_LIMIT = 420
 
 
 @dataclass(frozen=True)
@@ -33,15 +35,67 @@ def shorten(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def build_caption(character: GalleryCharacter) -> str:
+    """The character card: name and age, place and job, a short description,
+    the life story and a few key traits. Missing parts are simply left out."""
+    profile = character.profile
+
+    title = f"<b>{html.escape(shorten(character.name, 80))}</b>"
+    if profile is not None and profile.age:
+        title += f", {profile.age}"
+
+    meta = []
+    if profile is not None:
+        if profile.city:
+            meta.append(f"📍 {html.escape(profile.city)}")
+        if profile.occupation:
+            meta.append(f"💼 {html.escape(profile.occupation)}")
+
+    traits = ""
+    if profile is not None and profile.highlights:
+        traits = "✨ " + " · ".join(html.escape(item) for item in profile.highlights)
+
+    def compose(bio_limit: int, description_limit: int, with_traits: bool) -> str:
+        blocks = [title]
+        if meta:
+            blocks.append("  ".join(meta))
+        description = html.escape(shorten(character.description, description_limit)) if description_limit else ""
+        if description:
+            blocks.append(description)
+        if profile is not None and profile.bio and bio_limit:
+            blocks.append(f"<i>{html.escape(shorten(profile.bio, bio_limit))}</i>")
+        if traits and with_traits:
+            blocks.append(traits)
+        return "\n\n".join(blocks)
+
+    # Escaping can lengthen the text (& becomes &amp;), so the caption is made
+    # to fit Telegram's limit in steps: first a shorter life story, then a
+    # shorter description, then the traits go. The name, age and the place/job
+    # line always stay (their lengths are bounded, so they fit on their own).
+    attempts = (
+        [(bio, _DESCRIPTION_LIMIT, True) for bio in range(_BIO_LIMIT, 0, -60)]
+        + [(0, desc, True) for desc in range(_DESCRIPTION_LIMIT, 0, -60)]
+        + [(0, 0, True), (0, 0, False)]
+    )
+    caption = ""
+    for attempt in attempts:
+        caption = compose(*attempt)
+        if len(caption) <= _CAPTION_LIMIT:
+            break
+
+    return caption
+
+
 def build_slide(
     character: GalleryCharacter,
     markup: InlineKeyboardMarkup,
     avatars: AvatarProvider,
 ) -> Slide:
-    name = html.escape(character.name)
-    description = html.escape(shorten(character.description, _DESCRIPTION_LIMIT))
-    caption = f"<b>{name}</b>\n\n{description}" if description else f"<b>{name}</b>"
-    return Slide(caption, markup, avatars.resolve(character.slug, character.avatar_url))
+    return Slide(
+        build_caption(character),
+        markup,
+        avatars.resolve(character.slug, character.avatar_url),
+    )
 
 
 async def send_slide(message: Message, slide: Slide, avatars: AvatarProvider) -> None:
