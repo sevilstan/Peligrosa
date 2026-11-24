@@ -70,6 +70,59 @@ class SpeakerDirector:
 
         return self._parse(raw, members)
 
+    async def choose_followup(self, messages, members, names_by_character_id, user_name):
+        """(sender, target) if one character would now speak to another, else None.
+
+        Usually nobody does: the default answer is no. Output is validated like
+        everything else; any failure means no follow-up.
+        """
+        transcript = "\n".join(
+            self._line(m, names_by_character_id, user_name)
+            for m in messages[-TRANSCRIPT_MESSAGES:]
+        )
+
+        try:
+            raw = await self.ai_provider.generate_response(
+                system_prompt=self._followup_prompt(members, user_name),
+                messages=[{"role": "user", "content": transcript}],
+            )
+        except Exception as exc:
+            logger.warning("Follow-up check failed: %s", type(exc).__name__)
+            return None
+
+        return self._parse_followup(raw, members)
+
+    @staticmethod
+    def _followup_prompt(members, user_name) -> str:
+        people = "\n".join(f'- slug "{m.slug}": {m.name}' for m in members)
+        return (
+            f"You are the {DIRECTOR_MARKER}, watching a side conversation between "
+            f"characters in a group chat with the user ({user_name}):\n{people}\n\n"
+            "Would one character now naturally turn to ANOTHER character and "
+            "ask or say something to them (a question, a tease, a disagreement "
+            "with what they said)? Most of the time the answer is no. Only say "
+            "yes when it would feel natural and add something.\n"
+            'Reply with JSON only: {"from": "<slug>", "to": "<slug>"} or {"from": null}.'
+        )
+
+    @staticmethod
+    def _parse_followup(raw, members):
+        try:
+            data = json.loads(_FENCE.sub("", (raw or "").strip()))
+        except (ValueError, TypeError):
+            return None
+
+        if not isinstance(data, dict):
+            return None
+
+        by_slug = {m.slug: m for m in members}
+        sender = by_slug.get(data.get("from")) if isinstance(data.get("from"), str) else None
+        target = by_slug.get(data.get("to")) if isinstance(data.get("to"), str) else None
+
+        if sender is None or target is None or sender == target:
+            return None
+        return sender, target
+
     @staticmethod
     def _line(message, names, user_name) -> str:
         who = user_name if message.sender_type == "user" else names.get(message.sender_character_id, "Someone")

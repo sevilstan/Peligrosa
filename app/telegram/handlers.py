@@ -23,7 +23,7 @@ from app.services.chat_session_service import (
     ChatNotAvailableError,
     ChatSessionService,
 )
-from app.services.group_conversation_service import GroupConversationService
+from app.services.group_conversation_service import FOLLOWUP_CHANCE, GroupConversationService
 from app.services.conversation_service import AIResponseError, ConversationService
 from app.telegram.avatars import AvatarProvider
 from app.telegram.chat_utils import edit_text_in_place, split_text, typing_indicator
@@ -557,7 +557,9 @@ async def _group_text(message, bot, session, user, provider, conversation_id, te
     try:
         # Each reply is sent as soon as it exists; typing stays on meanwhile.
         async with typing_indicator(bot, message.chat.id):
-            await GroupConversationService(session, ai_provider=provider).send_message(
+            await GroupConversationService(
+                session, ai_provider=provider, followup_chance=FOLLOWUP_CHANCE
+            ).send_message(
                 conversation_id=conversation_id,
                 user_id=user.id,
                 content=text,

@@ -1,4 +1,5 @@
 import logging
+import random
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -28,12 +29,17 @@ _USER_TEXT_FOR_RECALL = 1500
 # the largest group).
 MAX_REPLIES_PER_TURN = 4
 
+# Characters sometimes talk to each other (one question + one answer, never a
+# chain). Both numbers exist to keep the cost bounded.
+FOLLOWUP_CHANCE = 0.25  # share of turns that even check for a follow-up
+MAX_TOTAL_REPLIES_PER_TURN = 6  # everything a single user message may cause
+
 
 @dataclass(frozen=True)
 class GroupReply:
     speaker: GroupMember
     content: str
-    reason: str  # "addressed", "director" or "everyone"
+    reason: str  # "addressed", "director", "everyone" or "followup"
     message_id: object
 
 
@@ -50,7 +56,11 @@ class GroupConversationService:
     character_id, and are never shown to the others.
     """
 
-    def __init__(self, session, ai_provider=None):
+    def __init__(self, session, ai_provider=None, followup_chance=0.0, rng=random.random):
+        # followup_chance is 0 by default so that only the Telegram handler
+        # (which passes FOLLOWUP_CHANCE) enables it; tests stay deterministic.
+        self.followup_chance = followup_chance
+        self.rng = rng
         self.session = session
         self.engine = ConversationService(session, ai_provider=ai_provider)
         self.gallery = CharacterGalleryService(session)
@@ -98,34 +108,20 @@ class GroupConversationService:
 
         for member, reason in speakers[:MAX_REPLIES_PER_TURN]:
             try:
-                # Later speakers see the earlier replies of this same turn.
-                history = await self._messages(conversation_id)
-                reply_text = await self._reply(conversation, members, member, history, user_id, user_name, names)
+                reply = await self._speak(
+                    conversation, members, member, reason, user_id, user_name, names, on_reply
+                )
             except AIResponseError:
                 if not replies:
                     raise
                 logger.warning("A character could not answer; keeping the replies so far.")
                 break
-
-            character_message = Message(
-                conversation_id=conversation_id,
-                sender_type="character",
-                sender_character_id=member.id,
-                content=reply_text,
-                message_type="text",
-            )
-            self.session.add(character_message)
-            await self.session.commit()
-
-            reply = GroupReply(member, reply_text, reason, character_message.id)
             replies.append(reply)
 
-            if on_reply is not None:
-                try:
-                    await on_reply(reply)
-                except Exception as exc:
-                    # Delivery problems must not cut the conversation short.
-                    logger.warning("Delivering a group reply failed: %s", type(exc).__name__)
+        if replies:
+            replies += await self._followup(
+                conversation, members, user_id, user_name, names, on_reply, len(replies)
+            )
 
         # Best effort, like in direct chats.
         if replies:
@@ -161,9 +157,82 @@ class GroupConversationService:
 
         return [(m, "everyone") for m in members]
 
+    async def _speak(self, conversation, members, speaker, reason, user_id, user_name, names, on_reply, directive=None):
+        """Generate, save and deliver one character message."""
+        # Later speakers see the earlier replies of this same turn.
+        history = await self._messages(conversation.id)
+        reply_text = await self._reply(
+            conversation, members, speaker, history, user_id, user_name, names, directive
+        )
+
+        character_message = Message(
+            conversation_id=conversation.id,
+            sender_type="character",
+            sender_character_id=speaker.id,
+            content=reply_text,
+            message_type="text",
+        )
+        self.session.add(character_message)
+        await self.session.commit()
+
+        reply = GroupReply(speaker, reply_text, reason, character_message.id)
+
+        if on_reply is not None:
+            try:
+                await on_reply(reply)
+            except Exception as exc:
+                # Delivery problems must not cut the conversation short.
+                logger.warning("Delivering a group reply failed: %s", type(exc).__name__)
+
+        return reply
+
+    async def _followup(self, conversation, members, user_id, user_name, names, on_reply, already):
+        """Sometimes one character turns to another and that one answers.
+
+        At most ONE exchange (two messages) per user message, only some of the
+        time, and only within the total reply cap: natural, but cheap.
+        Best effort: any failure just means no follow-up.
+        """
+        if (
+            len(members) < 2
+            or self.followup_chance <= 0
+            or already + 2 > MAX_TOTAL_REPLIES_PER_TURN
+            or self.rng() >= self.followup_chance
+        ):
+            return []
+
+        history = await self._messages(conversation.id)
+        pair = await self.director.choose_followup(history, members, names, user_name)
+        if pair is None:
+            return []
+        sender, target = pair
+
+        followups: list[GroupReply] = []
+        try:
+            followups.append(
+                await self._speak(
+                    conversation, members, sender, "followup", user_id, user_name, names, on_reply,
+                    directive=(
+                        f"Right now, say something short directly to {target.name} "
+                        "(a question, a tease or a reaction to what they said), "
+                        "addressing them by name."
+                    ),
+                )
+            )
+            followups.append(
+                await self._speak(
+                    conversation, members, target, "followup", user_id, user_name, names, on_reply,
+                    directive=f"{sender.name} just spoke to you. Answer them briefly.",
+                )
+            )
+        except AIResponseError:
+            logger.warning("A follow-up message could not be generated; stopping there.")
+
+        return followups
+
     # ------------------------------------------------------------ internals
 
-    async def _reply(self, conversation, members, speaker: GroupMember, history, user_id, user_name, names) -> str:
+    async def _reply(self, conversation, members, speaker: GroupMember, history, user_id, user_name, names, directive=None) -> str:
         character = next(
             p.character for p in conversation.participants if p.character_id == speaker.id
         )
@@ -178,6 +247,8 @@ class GroupConversationService:
             context_text=recent_user_text[-_USER_TEXT_FOR_RECALL:],
         )
         system_prompt = f"{base_prompt}\n\n{group_instructions(speaker, members, user_name)}"
+        if directive:
+            system_prompt += f"\n\nRIGHT NOW\n{directive}"
 
         reply = await self.engine.generate_reply(
             system_prompt,

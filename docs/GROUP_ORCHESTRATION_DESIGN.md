@@ -252,3 +252,11 @@ Decided by the product owner (2026-11-24):
   so the Groq free limit (30 RPM) allows only a handful of group messages per
   minute. The follow-up hop (characters reacting to each other without a new
   user message) is not part of this step.
+- **D2. Character-to-character follow-up: implemented (owner request
+  2026-11-24: sometimes one AI asks another and gets an answer, but cheaply).**
+  After the normal replies, in only ~25% of turns (`FOLLOWUP_CHANCE`) a small
+  check (`choose_followup`, default answer "no") may pick a sender and a target:
+  the sender says something short to the target and the target answers. One
+  exchange (2 messages) per user message, never a chain, inside a total cap of
+  6 messages (`MAX_TOTAL_REPLIES_PER_TURN`). Any failure just means no
+  follow-up. Extra cost: ~0.25 check + ~0.1 x 2 replies per turn on average.
