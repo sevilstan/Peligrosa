@@ -1,10 +1,13 @@
-"""Turn what happened in a group into changes of feelings (one batched call).
+"""Turn what happened in a group into changes of feelings and events (one
+batched call).
 
 Called every few messages, not on every message. The model reads the new
-messages and says how characters' feelings about each other moved and what
-mood each one is in now. The output is untrusted: only real members, known
-moods and small whole-number changes are kept, and the state services clamp
-everything again.
+messages and says how characters' feelings about each other moved, what mood
+each one is in now, and which notable things happened. Events are remembered
+by every character who was present, each in its own memory, so they can come
+up again in other chats. The output is untrusted: only real members, known
+moods, small whole-number changes and well-formed event keys are kept, and the
+state services clamp everything again.
 """
 
 import json
@@ -21,6 +24,9 @@ TRANSCRIPT_MESSAGES = 30
 _TEXT_LIMIT = 300
 MAX_PAIR_ENTRIES = 12
 MAX_MOOD_ENTRIES = 4
+MAX_EVENT_ENTRIES = 3
+EVENT_CONTENT_LIMIT = 300
+_EVENT_KEY = re.compile(r"^event_[a-z0-9_]{1,90}$")
 
 DIMENSION_NAMES = ("trust", "affection", "respect", "jealousy", "rivalry", "familiarity", "tension")
 
@@ -37,10 +43,11 @@ class RelationshipReflector:
         self.ai_provider = ai_provider
 
     async def reflect(self, messages, members: list[GroupMember], names_by_character_id, user_name):
-        """(relationship_changes, mood_changes) or None when the output is unusable.
+        """(relationship_changes, mood_changes, events) or None when unusable.
 
         relationship_changes: [(from_member, to_member, {dimension: int})]
         mood_changes: [(member, mood, intensity, reason)]
+        events: [(memory_key, content, importance)]
         A provider error is NOT caught here: the caller decides about retrying.
         """
         transcript = "\n".join(
@@ -75,7 +82,11 @@ class RelationshipReflector:
             'Reply with JSON only: {"relationships": [{"from": "<slug>", "to": "<slug>", '
             '"trust": 2, "tension": -1}], "moods": [{"character": "<slug>", '
             '"mood": "upset", "intensity": 60, "reason": "short reason"}]}. '
-            "Use empty lists when nothing changed."
+            "Also list up to 3 notable EVENTS that happened in this conversation "
+            "(something the user told that matters, a fight, a promise, news) as "
+            '{"key": "event_short_snake_case", "content": "one factual sentence", '
+            '"importance": 1-10}; routine chatter is not an event. '
+            'Add them as "events": [...]. Use empty lists when nothing changed.'
         )
 
     @staticmethod
@@ -125,4 +136,21 @@ class RelationshipReflector:
             reason = entry.get("reason")
             moods.append((member, entry["mood"], intensity, reason if isinstance(reason, str) else None))
 
-        return relationships, moods
+        events = []
+        entries = data.get("events")
+        for entry in (entries if isinstance(entries, list) else [])[:MAX_EVENT_ENTRIES]:
+            if not isinstance(entry, dict):
+                continue
+            key, content, importance = entry.get("key"), entry.get("content"), entry.get("importance")
+            if (
+                not isinstance(key, str)
+                or not _EVENT_KEY.fullmatch(key)
+                or not isinstance(content, str)
+                or not content.strip()
+                or isinstance(importance, bool)
+                or not isinstance(importance, int)
+            ):
+                continue
+            events.append((key, _clip(content, EVENT_CONTENT_LIMIT), max(1, min(10, importance))))
+
+        return relationships, moods, events

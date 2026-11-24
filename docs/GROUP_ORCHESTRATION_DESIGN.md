@@ -282,3 +282,13 @@ Decided by the product owner (2026-11-24):
   output is skipped. Cost: ~1 call per 8 messages. Characters now react to
   what happened (e.g. Bob stays upset after Amy teased him) in later replies.
   Not yet: reflecting in direct chats, group events as memories, initiative (F).
+- **E3. Group events as memories: implemented (the cross-group "news" case).**
+  The same reflection call (no extra call) now also returns up to 3 notable
+  events (`event_...` key, one factual sentence, importance 1-10). Every
+  character that was in the group stores each event in ITS OWN memory
+  (category `event`, `source_kind="group"`, separate records, upsert by key).
+  Characters outside the group do not learn it. Because memory belongs to the
+  character, the event can come up in other groups and direct chats: if Amy
+  and Bob were told "Osman got a new job" in group A, Amy can mention it in
+  group B, while Cy (not in A) cannot. Whether a character *does* mention it
+  stays a matter of its personality (decision D1).
