@@ -270,3 +270,15 @@ Decided by the product owner (2026-11-24):
   (behaviour hints, never numbers). Removing a character deletes its feelings
   and everyone's feelings about it for that user. **E2 (next): the batched
   reflection call that actually updates these from what happens in the chat.**
+- **E2. Feelings reflection: implemented.** In groups, every 8 new messages
+  (`REFLECTION_MIN_NEW_MESSAGES`) one batched call (`RelationshipReflector`)
+  reads only the new messages and returns small relationship changes and moods.
+  Output is validated (members only, known moods, whole numbers, entry caps)
+  and clamped again by the state services (+-5 per pair per reflection). The
+  "already reflected" counter (`conversations.reflection_message_count`, new
+  migration) is advanced with a compare-and-set in the same transaction as the
+  feelings, so concurrent requests cannot apply a batch twice and a failure
+  leaves everything unchanged. Provider errors are retried later; unusable
+  output is skipped. Cost: ~1 call per 8 messages. Characters now react to
+  what happened (e.g. Bob stays upset after Amy teased him) in later replies.
+  Not yet: reflecting in direct chats, group events as memories, initiative (F).

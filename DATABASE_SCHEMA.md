@@ -242,3 +242,13 @@ A character's current mood per user (one row). Fades with time when read.
 **Primary Key:** `['user_id', 'character_id']`
 
 **Check:** `intensity` between 0 and 100. Foreign keys `ON DELETE CASCADE`.
+
+
+
+### `conversations` (addition)
+
+| Column | Type | Nullable | Default |
+|---|---|---|---|
+| `reflection_message_count` | `INTEGER` | False | `0` |
+
+How many messages the group feelings reflection has already looked at (migration `d52e8f3b1c21`).

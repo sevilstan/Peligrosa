@@ -2,7 +2,7 @@ import logging
 import random
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
 from app.models.character import Character
@@ -22,6 +22,7 @@ from app.services.character_state_service import (
     CharacterEmotionService,
     CharacterRelationshipService,
 )
+from app.services.relationship_reflector import RelationshipReflector
 from app.services.speaker_director import SILENCE, SpeakerDirector
 from app.services.speaker_selection import GroupMember, select_speaker
 
@@ -38,6 +39,9 @@ MAX_REPLIES_PER_TURN = 4
 # chain). Both numbers exist to keep the cost bounded.
 FOLLOWUP_CHANCE = 0.25  # share of turns that even check for a follow-up
 MAX_TOTAL_REPLIES_PER_TURN = 6  # everything a single user message may cause
+
+# Feelings are updated in one batched call per this many new messages.
+REFLECTION_MIN_NEW_MESSAGES = 8
 
 
 @dataclass(frozen=True)
@@ -61,15 +65,17 @@ class GroupConversationService:
     character_id, and are never shown to the others.
     """
 
-    def __init__(self, session, ai_provider=None, followup_chance=0.0, rng=random.random):
+    def __init__(self, session, ai_provider=None, followup_chance=0.0, rng=random.random, reflection=False):
         # followup_chance is 0 by default so that only the Telegram handler
         # (which passes FOLLOWUP_CHANCE) enables it; tests stay deterministic.
         self.followup_chance = followup_chance
+        self.reflection = reflection  # off by default, like followups
         self.rng = rng
         self.session = session
         self.engine = ConversationService(session, ai_provider=ai_provider)
         self.gallery = CharacterGalleryService(session)
         self.director = SpeakerDirector(self.engine.ai_provider)
+        self.reflector = RelationshipReflector(self.engine.ai_provider)
 
     async def send_message(self, conversation_id, user_id, content, on_reply=None) -> list[GroupReply]:
         """Save the user's message and let the right characters answer.
@@ -139,7 +145,63 @@ class GroupConversationService:
                 )
                 await self.session.rollback()
 
+            if self.reflection:
+                await self._reflect(conversation_id, user_id, members, names, user_name)
+
         return replies
+
+    async def _reflect(self, conversation_id, user_id, members, names, user_name) -> None:
+        """Every few messages: update the characters' feelings from the chat.
+
+        Best effort and atomic. The "messages already reflected on" counter is
+        advanced with a compare-and-set INSIDE the same transaction as the
+        feelings, so concurrent requests cannot both apply the same batch, and
+        a failure leaves both unchanged. A provider error is retried on a later
+        message; unusable output is skipped (the counter still advances) so a
+        bad answer is not paid for again on every message.
+        """
+        try:
+            conversation = await self.session.get(Conversation, conversation_id)
+            await self.session.refresh(conversation)
+            previous = conversation.reflection_message_count
+
+            messages = await self._messages(conversation_id)
+            if len(messages) - previous < REFLECTION_MIN_NEW_MESSAGES:
+                return
+
+            parsed = await self.reflector.reflect(messages[previous:], members, names, user_name)
+
+            claimed = await self.session.execute(
+                update(Conversation)
+                .where(
+                    Conversation.id == conversation_id,
+                    Conversation.reflection_message_count == previous,
+                )
+                .values(
+                    reflection_message_count=len(messages),
+                    # Keep updated_at: it marks the chat the user last opened.
+                    updated_at=Conversation.updated_at,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if claimed.rowcount == 0:
+                await self.session.rollback()  # another request took this batch
+                return
+
+            if parsed is not None:
+                relationships, moods = parsed
+                relationship_service = CharacterRelationshipService(self.session)
+                emotion_service = CharacterEmotionService(self.session)
+
+                for sender, target, deltas in relationships:
+                    await relationship_service.apply_deltas(user_id, sender.id, target.id, deltas)
+                for member, mood, intensity, reason in moods:
+                    await emotion_service.set_emotion(user_id, member.id, mood, intensity, reason)
+
+            await self.session.commit()
+        except Exception as exc:
+            logger.warning("Feelings reflection failed, will retry later: %s", type(exc).__name__)
+            await self.session.rollback()
 
     async def _who_speaks(self, content, members, history, names, user_name):
         """[(member, reason)] in reply order.
