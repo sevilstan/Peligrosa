@@ -301,14 +301,18 @@ class GroupConversationService:
                     directive=(
                         f"Right now, say something short directly to {target.name} "
                         "(a question, a tease or a reaction to what they said), "
-                        "addressing them by name."
+                        f"addressing them by name, in a way that still includes {user_name}."
                     ),
                 )
             )
             followups.append(
                 await self._speak(
                     conversation, members, target, "followup", user_id, user_name, names, on_reply,
-                    directive=f"{sender.name} just spoke to you. Answer them briefly.",
+                    directive=(
+                        f"{sender.name} just spoke to you. Answer them briefly, then "
+                        f"turn to {user_name} and bring the conversation back to them "
+                        "(a question, a tease or a remark)."
+                    ),
                 )
             )
         except AIResponseError:

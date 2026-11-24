@@ -521,6 +521,14 @@ def test_instructions_tell_a_character_not_to_repeat_the_others():
     assert "do not repeat their point" in text and "Bob" in text
 
 
+def test_instructions_keep_the_user_at_the_center():
+    from app.services.group_context_builder import group_instructions
+
+    text = group_instructions(AMY, [AMY, BOB], "Ada")
+    assert "Ada is the center of this chat" in text
+    assert "bring the conversation back to them" in text
+
+
 # --------------------------------------------------- follow-ups (AI to AI)
 
 
@@ -582,6 +590,9 @@ def test_followup_is_a_question_and_an_answer_between_characters(run_db):
         assert provider.followup_calls == 1
         assert "RIGHT NOW" in provider.chat_prompts[-2] and "directly to Bob" in provider.chat_prompts[-2]
         assert "Amy just spoke to you" in provider.chat_prompts[-1]
+        # The exchange ends by turning back to the user, and so does the opener.
+        assert "turn to Ada" in provider.chat_prompts[-1]
+        assert "includes Ada" in provider.chat_prompts[-2]
         assert provider.chat_messages[-1][-1] == {"role": "user", "content": "Amy: hey"}
 
     run_db(scenario)
