@@ -1,4 +1,4 @@
-"""Group messaging (single speaker): who answers, memory fan-out, isolation."""
+"""Group messaging: who answers, several speakers, memory fan-out, isolation."""
 
 import json
 
@@ -16,6 +16,7 @@ from tests.telegram_harness import Harness, add_characters, callback_update, mes
 from tests.test_conversation_engine import ONE_MEMORY, ScriptedProvider
 
 TRIO = [("Amy", "amy", 0, True), ("Bob", "bob", 1, True), ("Cy", "cy", 2, True)]
+FOUR_CHARS = TRIO + [("Dee", "dee", 3, True)]
 
 
 def member(name, slug=None):
@@ -103,7 +104,7 @@ def test_group_reply_is_saved_for_the_speaker_and_prompt_lists_the_room(run_db):
         provider = PromptLog(chat_reply="Bob: Hello there")
 
         async with maker() as s:
-            reply = await GroupConversationService(s, provider).send_message(conv_id, user_id, "Bob, hi!")
+            [reply] = await GroupConversationService(s, provider).send_message(conv_id, user_id, "Bob, hi!")
 
         assert reply.speaker.name == "Bob" and reply.reason == "addressed"
         assert reply.content == "Hello there"  # the model's own-name prefix is dropped
@@ -157,7 +158,7 @@ def test_a_character_prompt_never_contains_another_characters_memory(run_db):
 
         provider = PromptLog()
         async with maker() as s:
-            reply = await GroupConversationService(s, provider).send_message(conv_id, user_id, "Amy, hello")
+            [reply] = await GroupConversationService(s, provider).send_message(conv_id, user_id, "Amy, hello")
         assert reply.speaker.name == "Amy"
         assert "CANARY-BOB-SECRET" not in provider.chat_prompts[-1]
 
@@ -237,18 +238,10 @@ def test_another_user_and_direct_chats_and_inactive_members_are_refused(run_db):
     run_db(scenario)
 
 
-def test_continuation_and_labelled_summary(run_db):
+def test_labelled_summary(run_db):
     async def scenario(maker):
         await add_characters(maker, TRIO)
         user_id, conv_id = await make_group(maker)
-        provider = PromptLog(chat_reply="ok")
-
-        async with maker() as s:
-            first = await GroupConversationService(s, provider).send_message(conv_id, user_id, "Bob, hi")
-        async with maker() as s:
-            second = await GroupConversationService(s, provider).send_message(conv_id, user_id, "and then?")
-        assert (first.speaker.name, second.speaker.name, second.reason) == ("Bob", "Bob", "continuation")
-
         seen = []
 
         class Spy(PromptLog):
@@ -258,11 +251,11 @@ def test_continuation_and_labelled_summary(run_db):
                 return await super().generate_response(system_prompt, messages)
 
         spy = Spy(chat_reply="ok")
-        for i in range(4):
+        for i in range(6):
             async with maker() as s:
                 await GroupConversationService(s, spy).send_message(conv_id, user_id, f"Amy, n{i}")
         assert seen, "summary should have run"
-        assert any("Bob: ok" in m["content"] or "Amy: ok" in m["content"] for m in seen[0])
+        assert any("Amy: ok" in m["content"] for m in seen[0])
 
     run_db(scenario)
 
@@ -302,7 +295,7 @@ from app.services.speaker_director import (  # noqa: E402
 
 
 class DirectorProvider(PromptLog):
-    def __init__(self, director_reply='{"speaker": "bob"}', director_fails=False, **kw):
+    def __init__(self, director_reply='{"speakers": ["amy", "bob"]}', director_fails=False, **kw):
         super().__init__(**kw)
         self.director_reply = director_reply
         self.director_fails = director_fails
@@ -327,12 +320,15 @@ AMY, BOB = member("Amy"), member("Bob")
 @pytest.mark.parametrize(
     "raw, expected",
     [
-        ('{"speaker": "bob"}', BOB),
-        ('```json\n{"speaker": "amy"}\n```', AMY),
-        ('{"speaker": null}', SILENCE),
-        ('{"speaker": "ghost"}', UNDECIDED),
-        ('{"speaker": 7}', UNDECIDED),
-        ('{"who": "bob"}', UNDECIDED),
+        ('{"speakers": ["bob"]}', [BOB]),
+        ('{"speakers": ["bob", "amy"]}', [BOB, AMY]),
+        ('```json\n{"speakers": ["amy"]}\n```', [AMY]),
+        ('{"speakers": ["amy", "amy", "ghost", 7]}', [AMY]),
+        ('{"speakers": [" bob "]}', [BOB]),
+        ('{"speakers": []}', SILENCE),
+        ('{"speakers": ["ghost"]}', UNDECIDED),
+        ('{"speakers": "bob"}', UNDECIDED),
+        ('{"speaker": "bob"}', UNDECIDED),
         ('["bob"]', UNDECIDED),
         ("bob", UNDECIDED),
         ("", UNDECIDED),
@@ -340,22 +336,46 @@ AMY, BOB = member("Amy"), member("Bob")
     ],
 )
 def test_director_output_is_validated(raw, expected):
-    assert SpeakerDirector._parse(raw, [AMY, BOB]) is expected
+    result = SpeakerDirector._parse(raw, [AMY, BOB])
+    assert result == expected if isinstance(expected, list) else result is expected
 
 
-def test_director_picks_the_speaker_when_nobody_is_addressed(run_db):
+def test_everyone_the_director_names_answers_in_order_and_sees_earlier_replies(run_db):
     async def scenario(maker):
         await add_characters(maker, TRIO)
         user_id, conv_id = await make_group(maker)
-        provider = DirectorProvider('{"speaker": "bob"}', chat_reply="hey")
+        provider = DirectorProvider('{"speakers": ["bob", "amy"]}', chat_reply="hey")
+        delivered = []
+
+        async def on_reply(reply):
+            delivered.append(reply.speaker.name)
 
         async with maker() as s:
-            reply = await GroupConversationService(s, provider).send_message(conv_id, user_id, "what a day")
+            replies = await GroupConversationService(s, provider).send_message(
+                conv_id, user_id, "what a day", on_reply=on_reply
+            )
 
-        assert (reply.speaker.name, reply.reason) == ("Bob", "director")
+        assert [(r.speaker.name, r.reason) for r in replies] == [("Bob", "director"), ("Amy", "director")]
+        assert delivered == ["Bob", "Amy"]
         assert provider.director_calls == 1
-        assert "Ada: what a day" in provider.director_input
-        assert 'slug "amy"' in provider.director_prompt
+        assert "Ada: what a day" in provider.director_input and 'slug "amy"' in provider.director_prompt
+        # Amy answers second, so she sees Bob's reply (labelled) in her messages.
+        assert provider.chat_messages[-1][-1] == {"role": "user", "content": "Bob: hey"}
+        async with maker() as s:
+            rows = (await s.execute(select(Message).order_by(Message.created_at, Message.id))).scalars().all()
+        assert [r.sender_type for r in rows] == ["user", "character", "character"]
+
+    run_db(scenario)
+
+
+def test_the_director_may_leave_some_characters_out(run_db):
+    async def scenario(maker):
+        await add_characters(maker, TRIO)
+        user_id, conv_id = await make_group(maker)
+        provider = DirectorProvider('{"speakers": ["bob"]}')
+        async with maker() as s:
+            replies = await GroupConversationService(s, provider).send_message(conv_id, user_id, "what a day")
+        assert [r.speaker.name for r in replies] == ["Bob"]
 
     run_db(scenario)
 
@@ -364,10 +384,10 @@ def test_addressed_messages_do_not_call_the_director(run_db):
     async def scenario(maker):
         await add_characters(maker, TRIO)
         user_id, conv_id = await make_group(maker)
-        provider = DirectorProvider('{"speaker": "bob"}')
+        provider = DirectorProvider()
 
         async with maker() as s:
-            reply = await GroupConversationService(s, provider).send_message(conv_id, user_id, "Amy, hello")
+            [reply] = await GroupConversationService(s, provider).send_message(conv_id, user_id, "Amy, hello")
 
         assert reply.speaker.name == "Amy" and provider.director_calls == 0
 
@@ -378,13 +398,12 @@ def test_silence_saves_the_user_message_but_no_character_reply(run_db):
     async def scenario(maker):
         await add_characters(maker, TRIO)
         user_id, conv_id = await make_group(maker)
-        provider = DirectorProvider('{"speaker": null}')
+        provider = DirectorProvider('{"speakers": []}')
 
         async with maker() as s:
-            reply = await GroupConversationService(s, provider).send_message(conv_id, user_id, "ok thanks")
+            replies = await GroupConversationService(s, provider).send_message(conv_id, user_id, "ok thanks")
 
-        assert (reply.speaker, reply.content, reply.reason) == (None, None, "silence")
-        assert provider.chat_prompts == []
+        assert replies == [] and provider.chat_prompts == []
         async with maker() as s:
             rows = (await s.execute(select(Message))).scalars().all()
         assert [r.sender_type for r in rows] == ["user"]
@@ -392,17 +411,89 @@ def test_silence_saves_the_user_message_but_no_character_reply(run_db):
     run_db(scenario)
 
 
-@pytest.mark.parametrize("kwargs", [{"director_reply": '{"speaker": "ghost"}'}, {"director_reply": "nonsense"}, {"director_fails": True}])
-def test_a_bad_director_falls_back_to_the_rules(run_db, kwargs):
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"director_reply": '{"speakers": ["ghost"]}'}, {"director_reply": "nonsense"}, {"director_fails": True}],
+)
+def test_a_bad_director_means_everyone_answers(run_db, kwargs):
     async def scenario(maker):
         await add_characters(maker, TRIO)
         user_id, conv_id = await make_group(maker)
         provider = DirectorProvider(chat_reply="hey", **kwargs)
 
         async with maker() as s:
-            reply = await GroupConversationService(s, provider).send_message(conv_id, user_id, "what a day")
+            replies = await GroupConversationService(s, provider).send_message(conv_id, user_id, "what a day")
 
-        assert (reply.speaker.name, reply.reason) == ("Amy", "default")  # a reply is never lost
+        assert [(r.speaker.name, r.reason) for r in replies] == [("Amy", "everyone"), ("Bob", "everyone")]
+
+    run_db(scenario)
+
+
+def test_reply_cap_and_a_failing_later_character_keep_earlier_replies(run_db, monkeypatch):
+    async def scenario(maker):
+        await add_characters(maker, FOUR_CHARS)
+        user_id, conv_id = await make_group(maker, ("amy", "bob", "cy", "dee"))
+
+        import app.services.group_conversation_service as module
+
+        monkeypatch.setattr(module, "MAX_REPLIES_PER_TURN", 2)
+        async with maker() as s:
+            replies = await GroupConversationService(s, PromptLog(chat_reply="hey")).send_message(
+                conv_id, user_id, "what a day"
+            )
+        assert [r.speaker.name for r in replies] == ["Amy", "Bob"]
+
+        monkeypatch.setattr(module, "MAX_REPLIES_PER_TURN", 4)
+
+        class SecondFails(PromptLog):
+            chats = 0
+
+            async def generate_response(self, system_prompt, messages):
+                low = system_prompt.lower()
+                if "long-term" not in low and DIRECTOR_MARKER not in low:
+                    SecondFails.chats += 1
+                    if SecondFails.chats == 2:
+                        raise RuntimeError("down")
+                return await super().generate_response(system_prompt, messages)
+
+        async with maker() as s:
+            replies = await GroupConversationService(s, SecondFails(chat_reply="hey")).send_message(
+                conv_id, user_id, "and now?"
+            )
+        assert [r.speaker.name for r in replies] == ["Amy"]  # Amy kept, the rest stopped
+
+    run_db(scenario)
+
+
+def test_a_failing_delivery_does_not_stop_the_other_characters(run_db):
+    async def scenario(maker):
+        await add_characters(maker, TRIO)
+        user_id, conv_id = await make_group(maker)
+
+        async def broken(reply):
+            raise RuntimeError("telegram is down")
+
+        async with maker() as s:
+            replies = await GroupConversationService(s, PromptLog(chat_reply="hey")).send_message(
+                conv_id, user_id, "what a day", on_reply=broken
+            )
+        assert len(replies) == 2
+
+    run_db(scenario)
+
+
+def test_bot_sends_each_characters_reply_as_its_own_message(run_db, tmp_path):
+    async def scenario(maker):
+        await add_characters(maker, TRIO)
+        bot = Harness(maker, tmp_path, DirectorProvider(chat_reply="hey"))
+        await bot.send(message_update("/newgroup"))
+        await bot.send(callback_update("gsel:0:amy"))
+        await bot.send(callback_update("gsel:0:bob"))
+        await bot.send(callback_update("gdone"))
+        before = len(bot.session.named("SendMessage"))
+
+        await bot.send(message_update("what a day"))
+        assert bot.texts()[before:] == ["<b>Amy:</b> hey", "<b>Bob:</b> hey"]
 
     run_db(scenario)
 
@@ -410,7 +501,7 @@ def test_a_bad_director_falls_back_to_the_rules(run_db, kwargs):
 def test_bot_stays_quiet_when_the_director_chooses_silence(run_db, tmp_path):
     async def scenario(maker):
         await add_characters(maker, TRIO)
-        bot = Harness(maker, tmp_path, DirectorProvider('{"speaker": null}'))
+        bot = Harness(maker, tmp_path, DirectorProvider('{"speakers": []}'))
         await bot.send(message_update("/newgroup"))
         await bot.send(callback_update("gsel:0:amy"))
         await bot.send(callback_update("gsel:0:bob"))
@@ -421,3 +512,10 @@ def test_bot_stays_quiet_when_the_director_chooses_silence(run_db, tmp_path):
         assert len(bot.session.named("SendMessage")) == before
 
     run_db(scenario)
+
+
+def test_instructions_tell_a_character_not_to_repeat_the_others():
+    from app.services.group_context_builder import group_instructions
+
+    text = group_instructions(AMY, [AMY, BOB], "Ada")
+    assert "do not repeat their point" in text and "Bob" in text

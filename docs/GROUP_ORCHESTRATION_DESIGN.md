@@ -240,3 +240,15 @@ Decided by the product owner (2026-11-24):
   validated; any failure falls back to the rule-based choice, so a reply is never
   lost. Silence saves the user's message and sends nothing in Telegram. Cost:
   +1 call only for messages that do not address a character by name.
+- **D. Multi-speaker: implemented (owner decision 2026-11-24: if nobody is
+  addressed, everyone or most answer).** Addressed by name -> only that
+  character. Otherwise the director returns an ordered list of speakers
+  (`{"speakers": [...]}`, usually everyone, fewer when some have nothing to say,
+  empty = silence); if it fails, everyone answers. Replies are generated one
+  after another so later speakers see (and must not repeat) earlier ones, and
+  each is sent to Telegram as soon as it is saved. Cap: `MAX_REPLIES_PER_TURN`
+  (4); a failure after the first reply keeps the earlier replies. Cost in a
+  4-member group: up to 1 director + 4 replies + 1 extraction per message,
+  so the Groq free limit (30 RPM) allows only a handful of group messages per
+  minute. The follow-up hop (characters reacting to each other without a new
+  user message) is not part of this step.

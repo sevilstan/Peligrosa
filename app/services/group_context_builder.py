@@ -35,7 +35,9 @@ def group_instructions(speaker: GroupMember, members: list[GroupMember], user_na
         "lines for the user or for other characters, and do not start your "
         "reply with your own name.\n"
         "- You can react to what others said and agree or disagree, in your "
-        "own voice. Keep to your own language and length rules."
+        "own voice. If another character already answered in this round, "
+        "do not repeat their point: add your own view or react to theirs. "
+        "Keep to your own language and length rules."
     )
 
 

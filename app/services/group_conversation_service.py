@@ -10,31 +10,35 @@ from app.models.conversation_participant import ConversationParticipant
 from app.models.message import Message
 from app.models.user import User
 from app.services.character_gallery_service import CharacterGalleryService
-from app.services.conversation_service import RECENT_MESSAGE_LIMIT, ConversationService
+from app.services.conversation_service import AIResponseError, RECENT_MESSAGE_LIMIT, ConversationService
 from app.services.group_context_builder import (
     DEFAULT_USER_NAME,
     group_instructions,
     label_messages,
 )
 from app.services.speaker_director import SILENCE, SpeakerDirector
-from app.services.speaker_selection import GroupMember, SpeakerChoice, select_speaker
+from app.services.speaker_selection import GroupMember, select_speaker
 
 logger = logging.getLogger(__name__)
 
 _USER_TEXT_FOR_RECALL = 1500
 
 
+# Cost guard: at most this many characters answer one user message (equals
+# the largest group).
+MAX_REPLIES_PER_TURN = 4
+
+
 @dataclass(frozen=True)
 class GroupReply:
-    # speaker/content/message_id are None when the director chose silence.
-    speaker: GroupMember | None
-    content: str | None
-    reason: str  # "addressed", "director", "continuation", "default" or "silence"
+    speaker: GroupMember
+    content: str
+    reason: str  # "addressed", "director" or "everyone"
     message_id: object
 
 
 class GroupConversationService:
-    """A user's message in a persistent group, answered by ONE character.
+    """A user's message in a persistent group, answered by one or more characters.
 
     Same safety rules as direct chats: the user's message is saved first and
     survives any later failure; memory and summary are best effort; a provider
@@ -52,7 +56,15 @@ class GroupConversationService:
         self.gallery = CharacterGalleryService(session)
         self.director = SpeakerDirector(self.engine.ai_provider)
 
-    async def send_message(self, conversation_id, user_id, content) -> GroupReply:
+    async def send_message(self, conversation_id, user_id, content, on_reply=None) -> list[GroupReply]:
+        """Save the user's message and let the right characters answer.
+
+        Returns the replies in order (empty = everybody stayed silent).
+        on_reply(reply) is awaited after each reply is saved, so a caller can
+        deliver it right away while the next character is still "thinking".
+        If a later character fails, the replies already given are kept and
+        returned; only a failure of the very first reply raises AIResponseError.
+        """
         conversation, members, user_name = await self._load(conversation_id, user_id)
 
         content = content.strip()
@@ -80,47 +92,78 @@ class GroupConversationService:
 
         names = {m.id: m.name for m in members}
         history = await self._messages(conversation_id)
-        last_speaker_id = self._last_character_speaker(history[:-1])
 
-        choice = select_speaker(content, members, last_speaker_id)
+        speakers = await self._who_speaks(content, members, history, names, user_name)
+        replies: list[GroupReply] = []
 
-        if choice.reason != "addressed":
-            # Nobody was called by name: let the director decide (or fall back
-            # to the rule-based choice if it cannot).
-            decided = await self.director.choose(history, members, names, user_name)
-            if decided is SILENCE:
-                return GroupReply(None, None, "silence", None)
-            if isinstance(decided, GroupMember):
-                choice = SpeakerChoice(decided, "director")
-        reply_text = await self._reply(conversation, members, choice, history, user_id, user_name, names)
+        for member, reason in speakers[:MAX_REPLIES_PER_TURN]:
+            try:
+                # Later speakers see the earlier replies of this same turn.
+                history = await self._messages(conversation_id)
+                reply_text = await self._reply(conversation, members, member, history, user_id, user_name, names)
+            except AIResponseError:
+                if not replies:
+                    raise
+                logger.warning("A character could not answer; keeping the replies so far.")
+                break
 
-        character_message = Message(
-            conversation_id=conversation_id,
-            sender_type="character",
-            sender_character_id=choice.member.id,
-            content=reply_text,
-            message_type="text",
-        )
-        self.session.add(character_message)
-        await self.session.commit()
-        message_id = character_message.id
+            character_message = Message(
+                conversation_id=conversation_id,
+                sender_type="character",
+                sender_character_id=member.id,
+                content=reply_text,
+                message_type="text",
+            )
+            self.session.add(character_message)
+            await self.session.commit()
+
+            reply = GroupReply(member, reply_text, reason, character_message.id)
+            replies.append(reply)
+
+            if on_reply is not None:
+                try:
+                    await on_reply(reply)
+                except Exception as exc:
+                    # Delivery problems must not cut the conversation short.
+                    logger.warning("Delivering a group reply failed: %s", type(exc).__name__)
 
         # Best effort, like in direct chats.
-        try:
-            await self.engine.update_conversation_summary(conversation, speaker_names=names)
-        except Exception as exc:
-            logger.warning(
-                "Summary update failed, will retry on a later message: %s",
-                type(exc).__name__,
-            )
-            await self.session.rollback()
+        if replies:
+            try:
+                await self.engine.update_conversation_summary(conversation, speaker_names=names)
+            except Exception as exc:
+                logger.warning(
+                    "Summary update failed, will retry on a later message: %s",
+                    type(exc).__name__,
+                )
+                await self.session.rollback()
 
-        return GroupReply(choice.member, reply_text, choice.reason, message_id)
+        return replies
+
+    async def _who_speaks(self, content, members, history, names, user_name):
+        """[(member, reason)] in reply order.
+
+        Called by name -> only that character. Otherwise the director picks
+        (usually everyone); if it cannot, everyone answers, as a group would.
+        """
+        last_speaker_id = self._last_character_speaker(history[:-1])
+        choice = select_speaker(content, members, last_speaker_id)
+
+        if choice.reason == "addressed":
+            return [(choice.member, "addressed")]
+
+        decided = await self.director.choose(history, members, names, user_name)
+
+        if decided is SILENCE:
+            return []
+        if isinstance(decided, list):
+            return [(m, "director") for m in decided]
+
+        return [(m, "everyone") for m in members]
 
     # ------------------------------------------------------------ internals
 
-    async def _reply(self, conversation, members, choice: SpeakerChoice, history, user_id, user_name, names) -> str:
-        speaker = choice.member
+    async def _reply(self, conversation, members, speaker: GroupMember, history, user_id, user_name, names) -> str:
         character = next(
             p.character for p in conversation.participants if p.character_id == speaker.id
         )

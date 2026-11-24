@@ -1,12 +1,15 @@
 """Who answers when nobody was addressed by name? One small AI call.
 
 The rules in speaker_selection settle the clear cases (addressed by name) for
-free. For the rest the director reads the last few messages and picks the
-character who would naturally answer, or nobody (silence is a valid result).
+free. For the rest the director reads the last few messages and returns the
+characters who would naturally answer, in reply order: usually everyone, fewer
+when some have nothing to say, and nobody (silence) only when no answer is
+needed.
 
-Model output is untrusted: only a slug of a real member, or null, is accepted.
-Any failure (provider error, invalid JSON, unknown slug) returns UNDECIDED and
-the caller falls back to the rule-based choice, so a reply is never lost.
+Model output is untrusted: only slugs of real members are accepted (repeats and
+unknown slugs are dropped). Any failure (provider error, invalid JSON, no valid
+slug) returns UNDECIDED and the caller falls back to "everyone answers", so a
+reply is never lost.
 """
 
 import json
@@ -47,7 +50,7 @@ class SpeakerDirector:
         self.ai_provider = ai_provider
 
     async def choose(self, messages, members: list[GroupMember], names_by_character_id, user_name):
-        """GroupMember, SILENCE or UNDECIDED."""
+        """A list of GroupMembers (reply order), SILENCE or UNDECIDED."""
         if not members:
             return UNDECIDED
 
@@ -82,12 +85,14 @@ class SpeakerDirector:
         return (
             f"You are the {DIRECTOR_MARKER}. A user ({user_name}) talks with these characters:\n"
             f"{people}\n\n"
-            "Read the conversation and decide who answers the LAST message. "
-            "Pick the one character who would most naturally respond. If the "
+            "Read the conversation and decide who answers the LAST message, "
+            "in the order they reply. In a group chat people usually react "
+            "together: include every character who would have something to "
+            "say, and leave out only those who clearly would not. If the "
             "last message answers a question a character asked, that "
-            "character replies. Choose nobody (null) only when the message "
-            "clearly needs no answer from anyone.\n"
-            'Reply with JSON only: {"speaker": "<slug>"} or {"speaker": null}.'
+            "character replies first. Use an empty list only when the "
+            "message needs no answer from anyone.\n"
+            'Reply with JSON only: {"speakers": ["<slug>", ...]}.'
         )
 
     @staticmethod
@@ -98,17 +103,22 @@ class SpeakerDirector:
             logger.warning("Speaker director returned invalid JSON.")
             return UNDECIDED
 
-        if not isinstance(data, dict) or "speaker" not in data:
+        if not isinstance(data, dict) or not isinstance(data.get("speakers"), list):
             return UNDECIDED
 
-        speaker = data["speaker"]
-        if speaker is None:
+        by_slug = {m.slug: m for m in members}
+        chosen: list[GroupMember] = []
+
+        for slug in data["speakers"]:
+            member = by_slug.get(slug.strip()) if isinstance(slug, str) else None
+            if member is not None and member not in chosen:
+                chosen.append(member)
+
+        if chosen:
+            return chosen
+
+        if not data["speakers"]:
             return SILENCE
 
-        if isinstance(speaker, str):
-            for member in members:
-                if member.slug == speaker.strip():
-                    return member
-
-        logger.warning("Speaker director named an unknown character.")
+        logger.warning("Speaker director named no known character.")
         return UNDECIDED
