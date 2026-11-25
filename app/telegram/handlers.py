@@ -36,7 +36,12 @@ from app.services.payment_service import CURRENCY, PaymentService, build_catalog
 from app.services.group_conversation_service import FOLLOWUP_CHANCE, GroupConversationService
 from app.services.conversation_service import AIResponseError, ConversationService
 from app.telegram.avatars import AvatarProvider
-from app.telegram.chat_utils import edit_text_in_place, split_text, typing_indicator
+from app.telegram.chat_utils import (
+    TELEGRAM_MESSAGE_LIMIT,
+    edit_text_in_place,
+    split_text,
+    typing_indicator,
+)
 from app.telegram.keyboards import (
     BUY_ITEM_PREFIX,
     BUY_OPEN,
@@ -140,10 +145,15 @@ async def _announce_chat(
 
     if context.is_group:
         key = "group_ready" if context.created else "group_resumed"
-        text = t(language, key, name=name)
     else:
         key = "chat_new" if context.created else "chat_resumed"
-        text = t(language, key, name=name)
+
+    # A visible divider: the chat list above belongs to the previous chat.
+    text = (
+        t(language, "chat_divider", name=name, icon="👥" if context.is_group else "💬")
+        + "\n"
+        + t(language, key, name=name)
+    )
 
     if not context.created and not context.is_group:
         last = await service.last_character_message(user.id, context.conversation_id)
@@ -808,6 +818,20 @@ async def refund_command(
 # ------------------------------------------------------------- messaging
 
 
+async def _send_as(message: Message, name: str, content: str) -> None:
+    """One bot, several voices: the name opens the message, in every chat, so
+    it is clear who speaks even when chats were switched above. Only the name
+    is HTML (escaped); the character's words stay plain text."""
+    # Telegram counts the visible characters, so the header ("Name: ") takes
+    # room from the first part.
+    parts = split_text(content, TELEGRAM_MESSAGE_LIMIT - len(name) - 2)
+    header = f"<b>{html.escape(name, quote=False)}:</b> "
+    # Quotes need no escaping in text; only <, > and & matter.
+    await message.answer(header + html.escape(parts[0], quote=False), parse_mode="HTML")
+    for part in parts[1:]:
+        await message.answer(part, parse_mode=None)
+
+
 async def chat_text(
     message: Message,
     bot: Bot,
@@ -862,9 +886,7 @@ async def chat_text(
         await message.answer(t(language, "chat_unavailable"))
         return
 
-    # Character replies are plain text: never interpreted as HTML.
-    for part in split_text(reply.content):
-        await message.answer(part, parse_mode=None)
+    await _send_as(message, active.name, reply.content)
 
 
 async def _group_text(
@@ -873,13 +895,7 @@ async def _group_text(
     language = user.language_code
 
     async def deliver(reply) -> None:
-        # One bot, several voices: the name opens the message. Only the name
-        # is HTML (escaped); the character's words stay plain text.
-        parts = split_text(reply.content)
-        header = f"<b>{html.escape(reply.speaker.name)}:</b> "
-        await message.answer(header + html.escape(parts[0]), parse_mode="HTML")
-        for part in parts[1:]:
-            await message.answer(part, parse_mode=None)
+        await _send_as(message, reply.speaker.name, reply.content)
 
     try:
         # Each reply is sent as soon as it exists; typing stays on meanwhile.

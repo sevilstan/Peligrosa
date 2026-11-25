@@ -147,7 +147,11 @@ def test_the_bot_uses_the_limiter_with_the_configured_numbers(monkeypatch):
     monkeypatch.setattr(settings, "AI_MAX_REQUESTS_PER_MINUTE", 7)
     monkeypatch.setattr(settings, "AI_MAX_QUEUE_WAIT_SECONDS", 12.0)
 
-    provider = build_ai_provider()
+    from app.providers.usage_tracking_provider import UsageTrackingProvider
+
+    tracked = build_ai_provider()
+    assert isinstance(tracked, UsageTrackingProvider)
+    provider = tracked.inner
     assert isinstance(provider, RateLimitedProvider)
     assert provider.max_per_minute == 7 and provider.max_wait == 12.0
     assert provider.model == settings.GROQ_MODEL

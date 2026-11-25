@@ -224,7 +224,9 @@ def test_full_group_creation_flow(run_db, tmp_path):
         confirm = bot.session.named("EditMessageText")[0]
         assert "Amy, Cy" in confirm["text"] and "reply_markup" not in confirm
         announce = bot.session.named("SendMessage")[0]["text"]
-        assert announce == t("en", "group_ready", name="Amy, Cy")
+        assert announce == (
+            t("en", "chat_divider", name="Amy, Cy", icon="👥") + "\n" + t("en", "group_ready", name="Amy, Cy")
+        )
         assert [d[:6] for d in bot.callback_data()] == ["hopen:"]  # history only, no "new chat"
 
         async with maker() as s:
@@ -356,7 +358,9 @@ def test_switching_to_a_group_from_the_list_and_turkish_texts(run_db, tmp_path):
         await bot.send(callback_update(group_button["callback_data"], lang="tr"))
 
         text = bot.texts()[-1]
-        assert text == t("tr", "group_resumed", name="Amy, Bob")
+        assert text == (
+            t("tr", "chat_divider", name="Amy, Bob", icon="👥") + "\n" + t("tr", "group_resumed", name="Amy, Bob")
+        )
 
     run_db(scenario)
 

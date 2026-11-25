@@ -17,5 +17,9 @@ COPY characters ./characters
 RUN useradd --create-home --uid 10001 bot
 USER bot
 
+# "docker ps" shows healthy/unhealthy from the bot's own /health endpoint.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)"
+
 # Apply database migrations, then run the Telegram bot (long polling).
 CMD ["sh", "-c", "alembic upgrade head && python -m app.telegram"]

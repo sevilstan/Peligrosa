@@ -49,6 +49,26 @@ def build_initiative_runner(bot, session_maker, provider, locks) -> InitiativeRu
     )
 
 
+async def sync_characters_on_start(session_maker) -> None:
+    """New YAML files become characters in the database at every start.
+
+    Best effort: a problem here must never keep the bot from starting.
+    """
+    from app.services.character_sync_service import CharacterSyncService
+
+    try:
+        async with session_maker() as session:
+            result = await CharacterSyncService(session).sync()
+    except Exception as exc:
+        logger.error("Could not sync characters: %s", type(exc).__name__)
+        return
+
+    if result.created:
+        logger.info("New characters available: %s", ", ".join(result.created))
+    for slug in result.failed:
+        logger.error("Character '%s' has an invalid definition and was skipped.", slug)
+
+
 def build_ai_provider():
     """The provider the bot talks to: Groq, kept inside its request limits.
 
@@ -56,12 +76,16 @@ def build_ai_provider():
     """
     from app.providers.groq_provider import GroqProvider
     from app.providers.rate_limited_provider import RateLimitedProvider
+    from app.providers.usage_tracking_provider import UsageTrackingProvider
 
-    return RateLimitedProvider(
-        GroqProvider(),
-        max_per_minute=settings.AI_MAX_REQUESTS_PER_MINUTE,
-        max_concurrent=settings.AI_MAX_CONCURRENT_REQUESTS,
-        max_wait=settings.AI_MAX_QUEUE_WAIT_SECONDS,
+    # Outermost, so calls that fail while waiting for a slot are counted too.
+    return UsageTrackingProvider(
+        RateLimitedProvider(
+            GroqProvider(),
+            max_per_minute=settings.AI_MAX_REQUESTS_PER_MINUTE,
+            max_concurrent=settings.AI_MAX_CONCURRENT_REQUESTS,
+            max_wait=settings.AI_MAX_QUEUE_WAIT_SECONDS,
+        )
     )
 
 
@@ -140,9 +164,19 @@ async def run() -> None:
 
     provider = build_ai_provider()
 
+    await sync_characters_on_start(SessionLocal)
+
     bot = build_bot(settings.TELEGRAM_BOT_TOKEN)
     locks = UserLocks()  # shared: a character never talks over a live chat
     dispatcher = build_dispatcher(SessionLocal, ai_provider=provider, locks=locks)
+
+    health_runner = None
+    if settings.HEALTH_PORT:
+        from app.telegram.health import start_health_server
+
+        health_runner = await start_health_server(
+            SessionLocal, provider, settings.HEALTH_HOST, settings.HEALTH_PORT
+        )
 
     initiative_task = None
     if settings.INITIATIVE_ENABLED:
@@ -161,4 +195,6 @@ async def run() -> None:
             initiative_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await initiative_task
+        if health_runner is not None:
+            await health_runner.cleanup()
         await bot.session.close()
