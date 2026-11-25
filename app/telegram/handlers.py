@@ -938,7 +938,9 @@ async def wipe_confirm(callback: CallbackQuery, session: AsyncSession, user: Use
         logger.error("Could not delete a user's data: %s", type(exc).__name__)
         text = t(language, "wipe_failed")
     else:
-        logger.info("A user deleted their data (%d chats).", result.conversations)
+        # The internal id (no name) is logged so deletions can be re-applied after
+        # restoring an old backup (scripts/reapply_deletions.py).
+        logger.info("User data deleted: user_id=%s chats=%d", user.id, result.conversations)
         text = t(
             language, "wipe_done", conversations=result.conversations, memories=result.memories
         )

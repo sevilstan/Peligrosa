@@ -15,14 +15,33 @@ all happens in one transaction.
 
 from dataclasses import dataclass
 
-from sqlalchemy import delete
+import re
+import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.character_emotion import CharacterEmotion
 from app.models.character_memory import CharacterMemory
 from app.models.character_relationship import CharacterRelationship
 from app.models.conversation import Conversation
+from app.models.user import User
 from app.models.user_memory import UserMemory
+
+
+_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+
+
+def extract_user_ids(text: str) -> list[uuid.UUID]:
+    """User ids from a file or from log lines ("... user_id=<uuid> ..."),
+    without duplicates, in order."""
+    found: list[uuid.UUID] = []
+    for match in _UUID.findall(text or ""):
+        value = uuid.UUID(match)
+        if value not in found:
+            found.append(value)
+    return found
 
 
 @dataclass(frozen=True)
@@ -52,6 +71,11 @@ class UserDataService:
             # Messages and participants go with their conversations (cascade).
             conversations = await self.session.execute(
                 delete(Conversation).where(Conversation.user_id == user_id)
+            )
+            # Remember that this user deleted their data: training exports skip
+            # them and old exports/backups can be purged from this list.
+            await self.session.execute(
+                update(User).where(User.id == user_id).values(data_deleted_at=datetime.now(timezone.utc))
             )
             await self.session.commit()
         except Exception:

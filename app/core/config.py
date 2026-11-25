@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     SUPPORT_CONTACT: str = ""  # shown by /support and /paysupport (e.g. @name)
     ADMIN_TELEGRAM_IDS: str = ""  # comma separated Telegram ids who may grant credits
 
+    # Secret salt that turns user ids into pseudonyms in training exports.
+    # Keep it private and never change it (old exports would stop matching).
+    TRAINING_EXPORT_SALT: str = ""
+
     # Alerts: ERRORs from our code are sent to ADMIN_TELEGRAM_IDS (each operator
     # must have pressed /start in the bot once).
     ALERT_DEDUP_SECONDS: int = 600
