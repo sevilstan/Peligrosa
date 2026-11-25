@@ -16,6 +16,15 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "openai/gpt-oss-20b"
 
+    # Which provider answers the characters: "groq" or "roleplay".
+    AI_PROVIDER: str = "groq"
+
+    ROLEPLAY_API_KEY: str = ""
+    ROLEPLAY_BASE_URL: str = "https://api.roleplayapi.com/v1"
+    ROLEPLAY_MODEL: str = "uncensored"
+    # An operator alert is logged when the balance (X-Balance-USD) drops below this.
+    ROLEPLAY_LOW_BALANCE_USD: float = 3.0
+
     # Print every SQL statement. Off by default and independent of DEBUG:
     # statements carry parameters, which include users' message text.
     SQL_ECHO: bool = False
