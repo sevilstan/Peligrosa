@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, ErrorEvent, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.alerts import install_alerts, parse_admin_ids, remove_alerts
 from app.core.config import settings
 from app.telegram.avatars import AvatarProvider
 from app.telegram.chat_utils import UserLocks
@@ -164,11 +165,21 @@ async def run() -> None:
 
     provider = build_ai_provider()
 
+    alert_handler = None
+    admin_ids = parse_admin_ids(settings.ADMIN_TELEGRAM_IDS)
+
     await sync_characters_on_start(SessionLocal)
 
     bot = build_bot(settings.TELEGRAM_BOT_TOKEN)
     locks = UserLocks()  # shared: a character never talks over a live chat
     dispatcher = build_dispatcher(SessionLocal, ai_provider=provider, locks=locks)
+
+    if admin_ids:
+        alert_handler, send_alert = install_alerts(
+            bot, admin_ids, settings.ALERT_DEDUP_SECONDS, settings.ALERT_MAX_PER_HOUR
+        )
+        await send_alert("✅ Bot started.")
+        logger.info("Error alerts go to %d operator(s).", len(admin_ids))
 
     health_runner = None
     if settings.HEALTH_PORT:
@@ -197,4 +208,6 @@ async def run() -> None:
                 await initiative_task
         if health_runner is not None:
             await health_runner.cleanup()
+        if alert_handler is not None:
+            remove_alerts(alert_handler)
         await bot.session.close()

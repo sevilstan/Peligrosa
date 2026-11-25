@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     SUPPORT_CONTACT: str = ""  # shown by /support and /paysupport (e.g. @name)
     ADMIN_TELEGRAM_IDS: str = ""  # comma separated Telegram ids who may grant credits
 
+    # Alerts: ERRORs from our code are sent to ADMIN_TELEGRAM_IDS (each operator
+    # must have pressed /start in the bot once).
+    ALERT_DEDUP_SECONDS: int = 600
+    ALERT_MAX_PER_HOUR: int = 20
+
     # Health endpoint (GET /health, /stats) for uptime checks. 0 = off.
     HEALTH_PORT: int = 0
     HEALTH_HOST: str = "127.0.0.1"
