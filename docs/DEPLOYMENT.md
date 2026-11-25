@@ -119,6 +119,15 @@ removes the data from training data and backups). To keep that promise:
 
 ## 4. Rate limits and cost (important before real users)
 
+### Roleplay API provider
+
+Set `AI_PROVIDER=roleplay` and `ROLEPLAY_API_KEY` in `.env` (never in chat or git).
+On the trial key use `AI_MAX_CONCURRENT_REQUESTS=2` and
+`AI_MAX_REQUESTS_PER_MINUTE=60`; after the first top-up the limits are 8 and 300.
+The bot logs an ERROR (operator Telegram alert) on 402 out-of-credit, on 401 bad
+key, and when the `X-Balance-USD` header falls below `ROLEPLAY_LOW_BALANCE_USD`
+(at most once per 6 hours). Prompts and replies are never logged.
+
 All AI calls go through one limiter (`AI_MAX_REQUESTS_PER_MINUTE`, default 25
 for Groq's free 30/min). Extra requests wait in line (the user sees "typing...");
 after `AI_MAX_QUEUE_WAIT_SECONDS` (60) the user gets "try again".

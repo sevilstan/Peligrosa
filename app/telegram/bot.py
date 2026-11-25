@@ -71,19 +71,32 @@ async def sync_characters_on_start(session_maker) -> None:
         logger.error("Character '%s' has an invalid definition and was skipped.", slug)
 
 
-def build_ai_provider():
-    """The provider the bot talks to: Groq, kept inside its request limits.
+def build_inner_provider():
+    """The provider chosen by AI_PROVIDER. Fails early (clear message) when its
+    key is missing or the name is unknown."""
+    name = settings.AI_PROVIDER.strip().lower()
 
-    Fails early with a clear message when GROQ_API_KEY is missing.
-    """
-    from app.providers.groq_provider import GroqProvider
+    if name == "groq":
+        from app.providers.groq_provider import GroqProvider
+
+        return GroqProvider()
+    if name == "roleplay":
+        from app.providers.roleplay_provider import RoleplayProvider
+
+        return RoleplayProvider()
+
+    raise RuntimeError(f"Unknown AI_PROVIDER '{settings.AI_PROVIDER}'. Use 'groq' or 'roleplay'.")
+
+
+def build_ai_provider():
+    """The provider the bot talks to, kept inside its request limits."""
     from app.providers.rate_limited_provider import RateLimitedProvider
     from app.providers.usage_tracking_provider import UsageTrackingProvider
 
     # Outermost, so calls that fail while waiting for a slot are counted too.
     return UsageTrackingProvider(
         RateLimitedProvider(
-            GroqProvider(),
+            build_inner_provider(),
             max_per_minute=settings.AI_MAX_REQUESTS_PER_MINUTE,
             max_concurrent=settings.AI_MAX_CONCURRENT_REQUESTS,
             max_wait=settings.AI_MAX_QUEUE_WAIT_SECONDS,
