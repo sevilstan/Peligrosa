@@ -106,8 +106,13 @@ def chat_actions_keyboard(
     conversation_id: uuid.UUID,
     language: str | None,
     is_group: bool = False,
+    fresh: bool = False,
 ) -> InlineKeyboardMarkup | None:
-    """Under a chat message: see its history, or start a fresh chat."""
+    """Under a chat message: see its history, or start a fresh chat.
+
+    A chat that was only just created is already fresh, so it gets no
+    "new chat" button.
+    """
     row = [
         InlineKeyboardButton(
             text=t(language, "btn_history"),
@@ -118,7 +123,7 @@ def chat_actions_keyboard(
     rows = [row]
 
     new_data = f"{NEW_PREFIX}{character.slug}"
-    if not is_group and _fits(new_data):
+    if not is_group and not fresh and _fits(new_data):
         row.append(
             InlineKeyboardButton(
                 text=t(language, "btn_new_chat", name=character.name),

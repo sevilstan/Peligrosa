@@ -172,7 +172,11 @@ async def _announce_chat(
     await message.answer(
         text,
         reply_markup=chat_actions_keyboard(
-            context.character, context.conversation_id, language, is_group=context.is_group
+            context.character,
+            context.conversation_id,
+            language,
+            is_group=context.is_group,
+            fresh=context.created,
         ),
     )
 

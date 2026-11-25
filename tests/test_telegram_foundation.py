@@ -504,3 +504,15 @@ def test_deactivated_user_gets_no_reply(run_db, tmp_path):
         assert bot.session.calls == []
 
     run_db(scenario)
+
+
+def test_fresh_chat_has_no_new_chat_button_but_a_resumed_one_does():
+    import uuid
+    character = GalleryCharacter("defne", "Defne", "d")
+    cid = uuid.uuid4()
+
+    fresh = keyboards.chat_actions_keyboard(character, cid, "en", fresh=True)
+    resumed = keyboards.chat_actions_keyboard(character, cid, "en", fresh=False)
+
+    assert not any(d.startswith("new:") or d.startswith(keyboards.NEW_PREFIX) for d in _data(fresh))
+    assert any(d.startswith(keyboards.NEW_PREFIX) for d in _data(resumed))
