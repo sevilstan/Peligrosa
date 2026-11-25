@@ -141,11 +141,30 @@ connections; keep the sum well below it.
 
 ## 6. Backups
 
-User conversations and memories live in the `pgdata` volume. Back it up:
+User conversations, memories and payment records live in the `pgdata` volume.
+`scripts/backup_db.sh` writes a compressed dump, checks it, and deletes backups
+older than `BACKUP_KEEP_DAYS` (default 14) only after a new good one exists.
+Files are readable by their owner only: they contain users' chats.
 
 ```bash
-docker compose exec db pg_dump -U peligrosa peligrosa | gzip > peligrosa-$(date +%F).sql.gz
+# every night at 03:00 (crontab -e), from the project folder on the server:
+0 3 * * * cd /srv/peligrosa && scripts/backup_db.sh /srv/backups >> /var/log/peligrosa-backup.log 2>&1
 ```
+
+- **Copy backups off the server** (another machine or object storage such as
+  R2/B2, e.g. with `rclone`); a backup on the same disk dies with the disk.
+- **Restore** into an EMPTY database, then re-apply deletions made after the
+  backup was taken (users who used `/deletedata` must not come back):
+
+  ```bash
+  gunzip -c /srv/backups/peligrosa-<time>.sql.gz | docker compose exec -T db psql -U peligrosa peligrosa
+  grep "User data deleted" bot.log > deleted_users.txt   # keep these log lines as long as backups
+  docker compose run --rm -v "$PWD/deleted_users.txt:/app/deleted_users.txt:ro" bot \
+      python -m scripts.reapply_deletions /app/deleted_users.txt
+  ```
+- **Test a restore** on a spare machine before you rely on it: a backup you
+  never restored is only a hope. Backups are removed after `BACKUP_KEEP_DAYS`;
+  your privacy policy should state this retention period.
 
 ## 7. Secrets and logs
 
@@ -155,6 +174,7 @@ docker compose exec db pg_dump -U peligrosa peligrosa | gzip > peligrosa-$(date 
 
 ## 8. Not done yet (decisions for the owner)
 
-- Per-user message limits (anti-abuse, daily free quota, payment).
-- Monitoring/alerts (the container restarts itself; nobody is told).
+- An outside uptime check on `/health` (alerts cannot report a dead server).
+- The first real `docker compose up --build` (the image has not been built in
+  the development environment) and a restore test.
 - A second process or webhook mode (needed only at larger scale).
