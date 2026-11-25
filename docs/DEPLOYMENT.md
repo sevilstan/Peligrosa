@@ -35,6 +35,17 @@ git pull
 docker compose up -d --build   # migrations run automatically
 ```
 
+## Credits (free trial, credits, subscription)
+
+Off by default (`CREDITS_ENABLED=false` = no limits). **Turn it on in
+production**, otherwise cost is unbounded. When on: a new user gets
+`TRIAL_CREDITS` once, a message costs `MESSAGE_COST`, a group message
+`GROUP_MESSAGE_COST`, creating a group `GROUP_CREATE_COST` (free for
+subscribers). A failed AI reply is refunded. Users see their balance with
+`/credits`. Until payments exist, an operator listed in `ADMIN_TELEGRAM_IDS`
+gives credits with `/grant <telegram_id> <credits>`. Subscriptions are set in
+`users.subscription_until` (no payment flow yet).
+
 ## 4. Rate limits and cost (important before real users)
 
 All AI calls go through one limiter (`AI_MAX_REQUESTS_PER_MINUTE`, default 25

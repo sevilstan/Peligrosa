@@ -101,6 +101,14 @@ class CreditService:
             subscribed=bool(until and until > self._clock()),
         )
 
+    async def ensure_trial(self, user_id) -> None:
+        """Grant the one-time trial now (it is otherwise granted on first use)."""
+        if not self.config.enabled:
+            return
+        user = await self._lock_user(user_id)
+        self._grant_trial_if_due(user)
+        await self.session.commit()
+
     # ------------------------------------------------------------- spending
 
     async def charge(

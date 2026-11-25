@@ -44,6 +44,17 @@ class Settings(BaseSettings):
     AI_MAX_CONCURRENT_REQUESTS: int = 4
     AI_MAX_QUEUE_WAIT_SECONDS: float = 60.0
 
+    # Credits. Off = no limits (development). When on, every new user gets
+    # TRIAL_CREDITS once; a subscriber spends nothing but is capped per day.
+    CREDITS_ENABLED: bool = False
+    TRIAL_CREDITS: int = 10
+    MESSAGE_COST: int = 1
+    GROUP_MESSAGE_COST: int = 2
+    GROUP_CREATE_COST: int = 50
+    IMAGE_COST: int = 5
+    SUBSCRIBER_DAILY_MESSAGE_CAP: int = 300
+    ADMIN_TELEGRAM_IDS: str = ""  # comma separated Telegram ids who may grant credits
+
     # Database connections. A chat reply keeps its connection while the AI
     # answers, so this bounds how many conversations can be in flight.
     DB_POOL_SIZE: int = 10
