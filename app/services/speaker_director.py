@@ -101,7 +101,9 @@ class SpeakerDirector:
             "Would one character now naturally turn to ANOTHER character and "
             "ask or say something to them (a question, a tease, a disagreement "
             "with what they said)? Most of the time the answer is no. Only say "
-            "yes when it would feel natural and add something.\n"
+            "yes when it would feel natural and add something. The side "
+            f"conversation should stay connected to {user_name}'s topic, "
+            f"because {user_name} is the center of the chat.\n"
             'Reply with JSON only: {"from": "<slug>", "to": "<slug>"} or {"from": null}.'
         )
 

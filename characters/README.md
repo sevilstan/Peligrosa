@@ -53,6 +53,19 @@ construct Python objects. A malformed existing YAML file raises an error
 instead of silently falling back to database values.
 
 
+## Adding a new character
+
+1. Add `characters/<slug>.yaml` (see `_template.yaml.example`) and, optionally,
+   a photo `characters/avatars/<slug>.jpg|png|webp`.
+2. Restart the bot, or run `python -m scripts.sync_characters`.
+
+The Telegram gallery lists characters from the database, so the YAML file
+alone is not enough: the sync creates the missing database row (active, placed
+after the existing characters). For existing characters it only refreshes
+name, description, personality text and system prompt; it never changes
+`is_active`, `sort_order` or `avatar_url`, and never deletes anything. A broken
+file is reported and skipped without affecting the others.
+
 ## Export existing characters
 
 To create the first YAML files from the character rows already in your local

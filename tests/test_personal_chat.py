@@ -197,10 +197,11 @@ def test_open_button_then_text_gets_a_reply_and_is_saved(run_db, tmp_path):
         await bot.send(message_update("Hello Amy"))
 
         started, reply = bot.texts()
-        assert "Amy" in started and t("en", "chat_new", name="Amy") == started
+        assert "Amy" in started and started.endswith(t("en", "chat_new", name="Amy"))
+        assert started.startswith(t("en", "chat_divider", name="Amy", icon="💬"))
         data = bot.callback_data(index=0)
         assert data[0].startswith("hopen:") and data[1] == "new:amy"
-        assert reply == "Hi Ada, I'm Amy!"
+        assert reply == "<b>Amy:</b> Hi Ada, I'm Amy!"
         assert "You are a test character." in provider.last_chat_prompt
 
         async with maker() as s:
@@ -220,8 +221,9 @@ def test_replies_are_plain_text_never_html(run_db, tmp_path):
         await bot.send(message_update("hi"))
 
         last = bot.session.named("SendMessage")[-1]
-        assert last["text"] == "<b>bold</b> & <i>x"
-        assert last.get("parse_mode") is None
+        # Only the name is HTML; the character's words are escaped, never markup.
+        assert last["text"] == "<b>Amy:</b> &lt;b&gt;bold&lt;/b&gt; &amp; &lt;i&gt;x"
+        assert last["parse_mode"] == "HTML"
 
     run_db(scenario)
 
@@ -235,7 +237,13 @@ def test_long_replies_are_split_into_telegram_sized_messages(run_db, tmp_path):
         await bot.send(message_update("write a lot"))
 
         parts = bot.texts()[1:]
-        assert len(parts) >= 2 and all(len(p) <= 4096 for p in parts)
+        import html
+        import re
+
+        # Telegram limits the VISIBLE text: no tags, entities decoded.
+        visible = [html.unescape(re.sub(r"<[^>]+>", "", p)) for p in parts]
+        assert len(parts) >= 2 and all(len(v) <= 4096 for v in visible)
+        assert visible[0].startswith("Amy: ")
 
     run_db(scenario)
 
@@ -280,7 +288,7 @@ def test_resuming_shows_where_we_left_off_escaped(run_db, tmp_path):
         await bot.send(callback_update("open:amy"))
 
         text = bot.texts()[-1]
-        assert text.startswith(t("en", "chat_resumed", name="Amy"))
+        assert t("en", "chat_resumed", name="Amy") in text
         assert "See you &lt;soon&gt; &amp; later" in text
 
     run_db(scenario)
@@ -313,7 +321,7 @@ def test_quick_messages_are_answered_one_at_a_time_in_order(run_db, tmp_path):
 
         assert provider.max_running == 1
         assert provider.seen == ["m0", "m1", "m2", "m3"]
-        assert bot.texts()[1:] == ["re: m0", "re: m1", "re: m2", "re: m3"]
+        assert bot.texts()[1:] == [f"<b>Amy:</b> re: m{i}" for i in range(4)]
 
     run_db(scenario)
 
@@ -424,7 +432,9 @@ def test_tr_user_gets_turkish_chat_texts(run_db, tmp_path):
 
         await bot.send(callback_update("open:amy", lang="tr"))
 
-        assert bot.texts() == [t("tr", "chat_new", name="Amy")]
+        assert bot.texts() == [
+            t("tr", "chat_divider", name="Amy", icon="💬") + "\n" + t("tr", "chat_new", name="Amy")
+        ]
 
     run_db(scenario)
 

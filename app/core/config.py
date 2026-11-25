@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     SUBSCRIBER_DAILY_MESSAGE_CAP: int = 300
     ADMIN_TELEGRAM_IDS: str = ""  # comma separated Telegram ids who may grant credits
 
+    # Health endpoint (GET /health, /stats) for uptime checks. 0 = off.
+    HEALTH_PORT: int = 0
+    HEALTH_HOST: str = "127.0.0.1"
+
     # Database connections. A chat reply keeps its connection while the AI
     # answers, so this bounds how many conversations can be in flight.
     DB_POOL_SIZE: int = 10

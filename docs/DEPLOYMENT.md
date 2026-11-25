@@ -21,8 +21,10 @@ docker compose logs -f bot
 
 On every start the bot container first runs `alembic upgrade head` (applies
 new migrations, never destructive on its own), then starts the bot. Characters
-come from the `characters/` YAML files and the database rows (seed the
-characters table as you did in development).
+come from the `characters/` YAML files: every time the bot starts it creates
+the database row of each new YAML file (so it shows up in Telegram) and
+refreshes the texts of existing ones. A character you deactivated stays
+inactive; nothing is ever deleted. To do it by hand: `python -m scripts.sync_characters`.
 
 > `docker-compose.yml` and the Dockerfile were written but **not built or run
 > in the development session** (no Docker daemon there). Run the first start
@@ -45,6 +47,17 @@ subscribers). A failed AI reply is refunded. Users see their balance with
 `/credits`. Until payments exist, an operator listed in `ADMIN_TELEGRAM_IDS`
 gives credits with `/grant <telegram_id> <credits>`. Subscriptions are set in
 `users.subscription_until` (no payment flow yet).
+
+## Monitoring basics
+
+- `GET /health` answers 200 when the bot's database works, 503 otherwise;
+  `GET /stats` shows AI calls, failures, average seconds and prompt/answer
+  sizes per day (no user text). Enable with `HEALTH_PORT` (compose sets 8080,
+  reachable only inside the container; `docker ps` shows healthy/unhealthy).
+- Point an uptime service at `/health` through a reverse proxy only if you
+  need outside checks; never publish the port directly.
+- Counters live in memory and restart with the bot. Error alerts (e.g.
+  Sentry) and database backups are separate, still-open items.
 
 ## 4. Rate limits and cost (important before real users)
 

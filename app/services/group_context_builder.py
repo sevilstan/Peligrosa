@@ -37,7 +37,12 @@ def group_instructions(speaker: GroupMember, members: list[GroupMember], user_na
         "- You can react to what others said and agree or disagree, in your "
         "own voice. If another character already answered in this round, "
         "do not repeat their point: add your own view or react to theirs. "
-        "Keep to your own language and length rules."
+        "Keep to your own language and length rules.\n"
+        f"- {user_name} is the center of this chat. You may talk with the "
+        f"other characters, but keep {user_name} part of it: ask them "
+        "something, tease them, react to what they said or bring the "
+        "conversation back to them. Do not let a talk between characters run "
+        f"without {user_name}."
     )
 
 
