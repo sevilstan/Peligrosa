@@ -200,7 +200,7 @@ def test_open_button_then_text_gets_a_reply_and_is_saved(run_db, tmp_path):
         assert "Amy" in started and started.endswith(t("en", "chat_new", name="Amy"))
         assert started.startswith(t("en", "chat_divider", name="Amy", icon="💬"))
         data = bot.callback_data(index=0)
-        assert data[0].startswith("hopen:") and data[1] == "new:amy"
+        assert data[0].startswith("hopen:") and "new:amy" not in data  # fresh chat: no "new chat" button
         assert reply == "<b>Amy:</b> Hi Ada, I'm Amy!"
         assert "You are a test character." in provider.last_chat_prompt
 
