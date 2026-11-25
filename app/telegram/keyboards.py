@@ -31,6 +31,8 @@ GROUP_CANCEL = "gcancel"
 HISTORY_OPEN_PREFIX = "hopen:"  # from a chat message: send history as a new message
 HISTORY_PAGE_PREFIX = "hist:"  # from the history itself: edit it in place
 NOOP = "noop"
+BUY_OPEN = "buyopen"
+BUY_ITEM_PREFIX = "buyitem:"
 
 # Telegram rejects callback_data longer than 64 bytes.
 _CALLBACK_LIMIT = 64
@@ -251,3 +253,25 @@ def history_keyboard(
         previous_key="btn_older", next_key="btn_newer",
     )
     return InlineKeyboardMarkup(inline_keyboard=[navigation]) if navigation else None
+
+
+def buy_keyboard(products, language: str | None) -> InlineKeyboardMarkup:
+    """One button per product on sale."""
+    rows = []
+    for product in products:
+        label = (
+            t(language, "buy_sub_button", days=product.days, stars=product.stars)
+            if product.is_subscription
+            else t(language, "buy_pack_button", credits=product.credits, stars=product.stars)
+        )
+        data = f"{BUY_ITEM_PREFIX}{product.key}"
+        if _fits(data):
+            rows.append([InlineKeyboardButton(text=label, callback_data=data)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def buy_prompt_keyboard(language: str | None) -> InlineKeyboardMarkup:
+    """Under "your credits are used up": opens the shop."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=t(language, "btn_buy"), callback_data=BUY_OPEN)]]
+    )

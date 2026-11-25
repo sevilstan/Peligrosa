@@ -8,14 +8,14 @@ Rules
   the same credit. It COMMITS, so the charge is visible at once; if the work
   that was paid for fails, the caller calls refund().
 - A subscriber (subscription_until in the future) spends no credits on things
-  the subscription includes, but only SUBSCRIBER_DAILY_MESSAGE_CAP messages a
+  the subscription includes, but only SUB_DAILY_MESSAGE_CAP messages a
   day (protects the cost). Nothing a user wrote or the AI answered is stored
   here, only amounts and reasons.
 """
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,7 +47,8 @@ class CreditConfig:
     group_message_cost: int = 2
     group_create_cost: int = 50
     image_cost: int = 5
-    subscriber_daily_cap: int = 300
+    subscriber_daily_cap: int = 100
+    sub_group_create_free: bool = True
 
     @classmethod
     def from_settings(cls, settings) -> "CreditConfig":
@@ -58,7 +59,8 @@ class CreditConfig:
             group_message_cost=settings.GROUP_MESSAGE_COST,
             group_create_cost=settings.GROUP_CREATE_COST,
             image_cost=settings.IMAGE_COST,
-            subscriber_daily_cap=settings.SUBSCRIBER_DAILY_MESSAGE_CAP,
+            subscriber_daily_cap=max(1, settings.SUB_DAILY_MESSAGE_CAP),  # never unlimited
+            sub_group_create_free=settings.SUB_GROUP_CREATE_FREE,
         )
 
 
@@ -164,6 +166,30 @@ class CreditService:
         self._record(user, amount, reason)
         await self.session.commit()
         return user.credits
+
+    async def apply_purchase(self, user_id, credits: int, days: int, product: str) -> User:
+        """Add what a payment bought. Does NOT commit: the caller commits it
+        together with the payment record, so one cannot exist without the other."""
+        user = await self._lock_user(user_id)
+        if credits:
+            user.credits += credits
+        if days:
+            base = max(self._clock(), user.subscription_until or self._clock())
+            user.subscription_until = base + timedelta(days=days)
+        self._record(user, credits, f"buy_{product}"[:30])
+        return user
+
+    async def revoke_purchase(self, user_id, credits: int, days: int, product: str) -> None:
+        """Take back what a refunded payment gave (credits never below 0, a
+        subscription never ends earlier than now). Does not commit."""
+        user = await self._lock_user(user_id)
+        removed = min(credits, user.credits)
+        user.credits -= removed
+        if days and user.subscription_until and user.subscription_until > self._clock():
+            user.subscription_until = max(
+                self._clock(), user.subscription_until - timedelta(days=days)
+            )
+        self._record(user, -removed, f"refund_{product}"[:30])
 
     async def set_subscription(self, user_id, until: datetime | None) -> None:
         user = await self._lock_user(user_id)

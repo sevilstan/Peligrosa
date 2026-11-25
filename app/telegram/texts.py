@@ -46,6 +46,35 @@ TEXTS: dict[str, dict[str, str]] = {
         "proactive_unavailable": "This feature is not active yet.",
         "cmd_proactive": "Let characters message first (on/off)",
         "cmd_credits": "Your credits",
+        "cmd_buy": "Buy credits or a subscription",
+        "cmd_terms": "Terms of use",
+        "cmd_support": "Support",
+        "cmd_paysupport": "Help with a payment",
+        "btn_buy": "💳 Buy credits",
+        "buy_menu": "What would you like to buy? Payment is made with Telegram Stars. By buying you accept /terms.",
+        "buy_pack_button": "{credits} credits — {stars} ⭐",
+        "buy_sub_button": "⭐ Subscription, {days} days — {stars} ⭐",
+        "buy_unavailable": "Nothing is on sale right now.",
+        "invoice_pack_title": "{credits} credits",
+        "invoice_pack_description": "Chat credits for Peligrosa.",
+        "invoice_sub_title": "Subscription ({days} days)",
+        "invoice_sub_description": "Up to {cap} messages a day are included for {days} days.",
+        "invoice_sub_description_groups": "Up to {cap} messages a day and creating groups are included for {days} days.",
+        "precheckout_rejected": "This item is not available any more or its price changed. Please open /buy again.",
+        "pay_thanks_pack": "✅ Thank you! You now have <b>{credits}</b> credits.",
+        "pay_thanks_sub": "✅ Thank you! Your subscription is active until <b>{until}</b>.",
+        "pay_problem": "We received your payment but could not deliver it automatically. Please contact /paysupport and keep this chat.",
+        "terms_text": (
+            "<b>Terms of use</b>\n"
+            "• Credits and subscriptions are digital items paid with Telegram Stars.\n"
+            "• Credits are used by sending messages; a failed reply is refunded automatically.\n"
+            "• Characters are fictional AI characters. You must be 18 or older.\n"
+            "• Telegram and Telegram support cannot help with purchases made in this bot. Use /paysupport.\n"
+            "• Refunds are handled case by case through /paysupport."
+        ),
+        "support_text": "Need help? Contact {contact}.",
+        "paysupport_text": "Problem with a payment? Contact {contact} and include the time and amount of the payment.",
+        "support_missing": "Support contact details have not been set yet.",
         "credits_off": "Credits are not active right now.",
         "credits_balance": (
             "💳 You have <b>{credits}</b> credits.\n"
@@ -53,17 +82,17 @@ TEXTS: dict[str, dict[str, str]] = {
             "creating a group {group_create}."
         ),
         "credits_subscribed": (
-            "⭐ Your subscription is active until <b>{until}</b>. "
-            "Messages and groups are included. Extra credits: {credits}."
+            "⭐ Your subscription is active until <b>{until}</b>: up to {cap} messages a day are included. "
+            "Extra credits: {credits}."
         ),
         "credits_empty": (
             "Your credits are used up. To keep chatting you need credits or a "
-            "subscription. Buying them will be available here soon."
+            "subscription."
         ),
         "daily_cap": "You reached today's message limit. Please come back tomorrow.",
         "group_needs_credits": (
             "Creating a group costs {cost} credits (free with a subscription). "
-            "You have {credits}."
+            "You have {credits}. Use /buy to get more."
         ),
         "btn_delete": "🗑 Delete {name}",
         "btn_delete_yes": "🗑 Yes, delete",
@@ -142,6 +171,35 @@ TEXTS: dict[str, dict[str, str]] = {
         "proactive_unavailable": "Bu özellik henüz aktif değil.",
         "cmd_proactive": "Karakterler ilk yazsın (açık/kapalı)",
         "cmd_credits": "Kredilerin",
+        "cmd_buy": "Kredi veya abonelik satın al",
+        "cmd_terms": "Kullanım şartları",
+        "cmd_support": "Destek",
+        "cmd_paysupport": "Ödeme yardımı",
+        "btn_buy": "💳 Kredi satın al",
+        "buy_menu": "Ne almak istersin? Ödeme Telegram Yıldızları ile yapılır. Satın alarak /terms şartlarını kabul edersin.",
+        "buy_pack_button": "{credits} kredi — {stars} ⭐",
+        "buy_sub_button": "⭐ Abonelik, {days} gün — {stars} ⭐",
+        "buy_unavailable": "Şu an satışta bir şey yok.",
+        "invoice_pack_title": "{credits} kredi",
+        "invoice_pack_description": "Peligrosa sohbet kredisi.",
+        "invoice_sub_title": "Abonelik ({days} gün)",
+        "invoice_sub_description": "{days} gün boyunca günde {cap} mesaj dahil.",
+        "invoice_sub_description_groups": "{days} gün boyunca günde {cap} mesaj ve grup kurma dahil.",
+        "precheckout_rejected": "Bu ürün artık satışta değil ya da fiyatı değişti. Lütfen /buy ile tekrar aç.",
+        "pay_thanks_pack": "✅ Teşekkürler! Artık <b>{credits}</b> kredin var.",
+        "pay_thanks_sub": "✅ Teşekkürler! Aboneliğin <b>{until}</b> tarihine kadar aktif.",
+        "pay_problem": "Ödemeni aldık ama otomatik teslim edemedik. Lütfen /paysupport ile bize ulaş ve bu sohbeti silme.",
+        "terms_text": (
+            "<b>Kullanım şartları</b>\n"
+            "• Kredi ve abonelik, Telegram Yıldızları ile ödenen dijital ürünlerdir.\n"
+            "• Krediler mesaj yazarak harcanır; cevap alınamazsa kredi otomatik iade edilir.\n"
+            "• Karakterler kurgusal yapay zekâ karakterleridir. 18 yaşında veya daha büyük olmalısın.\n"
+            "• Telegram ve Telegram desteği bu bottaki satın almalarda yardımcı olamaz. /paysupport kullan.\n"
+            "• İadeler /paysupport üzerinden tek tek değerlendirilir."
+        ),
+        "support_text": "Yardım mı lazım? {contact} ile iletişime geç.",
+        "paysupport_text": "Ödemeyle ilgili sorun mu var? {contact} ile iletişime geç, ödemenin saatini ve tutarını yaz.",
+        "support_missing": "Destek iletişim bilgisi henüz ayarlanmadı.",
         "credits_off": "Kredi sistemi şu an aktif değil.",
         "credits_balance": (
             "💳 <b>{credits}</b> kredin var.\n"
@@ -149,16 +207,15 @@ TEXTS: dict[str, dict[str, str]] = {
             "grup kurmak {group_create} kredi."
         ),
         "credits_subscribed": (
-            "⭐ Aboneliğin <b>{until}</b> tarihine kadar aktif. "
-            "Mesajlar ve grup kurma dahil. Ekstra kredi: {credits}."
+            "⭐ Aboneliğin <b>{until}</b> tarihine kadar aktif: günde {cap} mesaj dahil. "
+            "Ekstra kredi: {credits}."
         ),
         "credits_empty": (
-            "Kredin bitti. Sohbete devam etmek için kredi ya da abonelik gerekiyor. "
-            "Satın alma çok yakında burada olacak."
+            "Kredin bitti. Sohbete devam etmek için kredi ya da abonelik gerekiyor."
         ),
         "daily_cap": "Bugünkü mesaj sınırına ulaştın. Lütfen yarın tekrar gel.",
         "group_needs_credits": (
-            "Grup kurmak {cost} kredi (abonelikte ücretsiz). Senin {credits} kredin var."
+            "Grup kurmak {cost} kredi (abonelikte ücretsiz). Senin {credits} kredin var. Daha fazlası için /buy."
         ),
         "btn_delete": "🗑 {name} kişisini sil",
         "btn_delete_yes": "🗑 Evet, sil",

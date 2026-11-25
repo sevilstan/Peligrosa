@@ -4,7 +4,8 @@ import uuid
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import CallbackQuery, Message
+from aiogram.exceptions import TelegramAPIError
+from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,11 +32,16 @@ from app.services.credit_service import (
     DailyCapReached,
     InsufficientCredits,
 )
+from app.services.payment_service import CURRENCY, PaymentService, build_catalog, payload_for
 from app.services.group_conversation_service import FOLLOWUP_CHANCE, GroupConversationService
 from app.services.conversation_service import AIResponseError, ConversationService
 from app.telegram.avatars import AvatarProvider
 from app.telegram.chat_utils import edit_text_in_place, split_text, typing_indicator
 from app.telegram.keyboards import (
+    BUY_ITEM_PREFIX,
+    BUY_OPEN,
+    buy_keyboard,
+    buy_prompt_keyboard,
     CHAT_PREFIX,
     CHATS_PAGE_PREFIX,
     DELETE_CANCEL,
@@ -514,7 +520,12 @@ async def group_done(
 
     service = ChatSessionService(session, provider)
     receipt = await _charge_or_explain(
-        callback, session, user, CreditConfig.from_settings(settings).group_create_cost, "group_create"
+        callback,
+        session,
+        user,
+        CreditConfig.from_settings(settings).group_create_cost,
+        "group_create",
+        included_in_subscription=settings.SUB_GROUP_CREATE_FREE,
     )
     if receipt is None:
         return
@@ -578,7 +589,9 @@ async def credits_command(message: Message, session: AsyncSession, user: User) -
             message=config.message_cost,
             group_message=config.group_message_cost,
             group_create=config.group_create_cost,
-        )
+            cap=config.subscriber_daily_cap,
+        ),
+        reply_markup=buy_prompt_keyboard(language) if _catalog() else None,
     )
 
 
@@ -607,7 +620,9 @@ async def grant_command(
     await message.answer(f"Granted {int(parts[1])}. New balance: {balance}.")
 
 
-async def _charge_or_explain(message_or_callback, session, user, cost, reason, conversation_id=None):
+async def _charge_or_explain(
+    message_or_callback, session, user, cost, reason, conversation_id=None, included_in_subscription=True
+):
     """Charge, or tell the user why not. Returns the receipt, or None."""
     language = user.language_code
     config = CreditConfig.from_settings(settings)
@@ -615,7 +630,11 @@ async def _charge_or_explain(message_or_callback, session, user, cost, reason, c
 
     try:
         return await CreditService(session, config).charge(
-            user.id, cost, reason, conversation_id=conversation_id
+            user.id,
+            cost,
+            reason,
+            conversation_id=conversation_id,
+            included_in_subscription=included_in_subscription,
         )
     except InsufficientCredits as exc:
         key = "group_needs_credits" if reason == "group_create" else "credits_empty"
@@ -626,8 +645,164 @@ async def _charge_or_explain(message_or_callback, session, user, cost, reason, c
     if is_callback:
         await message_or_callback.answer(text, show_alert=True)
     else:
-        await message_or_callback.answer(text)
+        await message_or_callback.answer(
+            text,
+            reply_markup=buy_prompt_keyboard(language) if _catalog() else None,
+        )
     return None
+
+
+# ------------------------------------------------------------------ shop
+
+
+def _catalog():
+    return build_catalog(settings) if settings.CREDITS_ENABLED else []
+
+
+async def _show_shop(message: Message, user: User) -> None:
+    language = user.language_code
+    catalog = _catalog()
+    if not catalog:
+        await message.answer(t(language, "buy_unavailable"))
+        return
+    await message.answer(t(language, "buy_menu"), reply_markup=buy_keyboard(catalog, language))
+
+
+async def buy_command(message: Message, user: User) -> None:
+    await _show_shop(message, user)
+
+
+async def buy_open(callback: CallbackQuery, user: User) -> None:
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await _show_shop(callback.message, user)
+
+
+async def buy_item(callback: CallbackQuery, user: User) -> None:
+    language = user.language_code
+    key = callback.data.removeprefix(BUY_ITEM_PREFIX)
+    product = next((p for p in _catalog() if p.key == key), None)
+
+    if product is None or not isinstance(callback.message, Message):
+        await callback.answer(t(language, "buy_unavailable"), show_alert=True)
+        return
+
+    await callback.answer()
+    if product.is_subscription:
+        values = {"days": product.days, "cap": max(1, settings.SUB_DAILY_MESSAGE_CAP)}
+        title = t(language, "invoice_sub_title", **values)
+        description = t(
+            language,
+            "invoice_sub_description_groups" if settings.SUB_GROUP_CREATE_FREE else "invoice_sub_description",
+            **values,
+        )
+    else:
+        title = t(language, "invoice_pack_title", credits=product.credits)
+        description = t(language, "invoice_pack_description")
+
+    await callback.message.answer_invoice(
+        title=title,
+        description=description,
+        payload=payload_for(product),
+        currency=CURRENCY,
+        prices=[LabeledPrice(label=title, amount=product.stars)],
+        provider_token="",
+    )
+
+
+def _payments(session: AsyncSession) -> PaymentService:
+    return PaymentService(session, _catalog(), CreditConfig.from_settings(settings))
+
+
+async def pre_checkout(query: PreCheckoutQuery, session: AsyncSession, user: User) -> None:
+    """Telegram waits only 10 seconds: nothing here but a quick check."""
+    product = _payments(session).check_order(
+        query.invoice_payload, query.currency, query.total_amount
+    )
+    if product is None:
+        await query.answer(ok=False, error_message=t(user.language_code, "precheckout_rejected"))
+        return
+    await query.answer(ok=True)
+
+
+async def successful_payment(message: Message, session: AsyncSession, user: User) -> None:
+    language = user.language_code
+    payment = message.successful_payment
+    charge_id = payment.telegram_payment_charge_id
+
+    try:
+        delivery = await _payments(session).deliver(
+            user.id, payment.invoice_payload, payment.total_amount, charge_id
+        )
+    except Exception as exc:
+        # Money was taken: never lose track of it. The charge id is not a secret.
+        logger.error("Could not deliver payment %s: %s", charge_id, type(exc).__name__)
+        await message.answer(t(language, "pay_problem"))
+        return
+
+    if delivery.duplicate:
+        return
+    if delivery.product is None:
+        await message.answer(t(language, "pay_problem"))
+        return
+
+    if delivery.product.is_subscription:
+        await message.answer(
+            t(
+                language,
+                "pay_thanks_sub",
+                until=delivery.subscription_until.strftime("%Y-%m-%d"),
+            )
+        )
+    else:
+        await message.answer(t(language, "pay_thanks_pack", credits=delivery.credits))
+
+
+async def terms_command(message: Message, user: User) -> None:
+    await message.answer(t(user.language_code, "terms_text"))
+
+
+async def support_command(message: Message, user: User) -> None:
+    key = "support_text" if message.text.lstrip("/").startswith("support") else "paysupport_text"
+    if not settings.SUPPORT_CONTACT:
+        await message.answer(t(user.language_code, "support_missing"))
+        return
+    await message.answer(t(user.language_code, key, contact=html.escape(settings.SUPPORT_CONTACT)))
+
+
+async def refund_command(
+    message: Message, command: CommandObject, bot: Bot, session: AsyncSession, user: User
+) -> None:
+    """Operator only: /refund <telegram_charge_id>. Telegram returns the Stars
+    first; only when that works do we take back what the payment gave."""
+    if user.telegram_id not in _admin_ids():
+        await unknown_command(message, user)
+        return
+
+    charge_id = (command.args or "").strip()
+    service = _payments(session)
+    found = await service.find(charge_id) if charge_id else None
+
+    if found is None:
+        await message.answer("Usage: /refund <telegram_charge_id> (unknown payment).")
+        return
+
+    payment, buyer_telegram_id = found
+    if payment.status == "refunded" or buyer_telegram_id is None:
+        await message.answer("Already refunded.")
+        return
+
+    try:
+        await bot.refund_star_payment(
+            user_id=buyer_telegram_id, telegram_payment_charge_id=charge_id
+        )
+    except TelegramAPIError as exc:
+        logger.warning("Telegram refused a refund: %s", type(exc).__name__)
+        await message.answer("Telegram refused the refund. Nothing was changed.")
+        return
+
+    await service.reverse(charge_id)
+    await message.answer("Refunded and taken back.")
 
 
 # ------------------------------------------------------------- messaging
@@ -752,6 +927,12 @@ def build_router() -> Router:
     router.message.register(delete_command, Command("delete"))
     router.message.register(proactive_command, Command("proactive"))
     router.message.register(credits_command, Command("credits"))
+    router.message.register(buy_command, Command("buy"))
+    router.message.register(terms_command, Command("terms"))
+    router.message.register(support_command, Command("support", "paysupport"))
+    router.message.register(refund_command, Command("refund"))
+    router.message.register(successful_payment, F.successful_payment)
+    router.pre_checkout_query.register(pre_checkout)
     router.message.register(grant_command, Command("grant"))
     router.message.register(unknown_command, F.text.startswith("/"))
     router.message.register(chat_text, F.text)
@@ -772,6 +953,8 @@ def build_router() -> Router:
     router.callback_query.register(group_page, F.data.startswith(GROUP_PAGE_PREFIX))
     router.callback_query.register(group_done, F.data == GROUP_DONE)
     router.callback_query.register(group_cancel, F.data == GROUP_CANCEL)
+    router.callback_query.register(buy_open, F.data == BUY_OPEN)
+    router.callback_query.register(buy_item, F.data.startswith(BUY_ITEM_PREFIX))
     router.callback_query.register(noop, F.data == NOOP)
 
     return router
