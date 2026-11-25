@@ -10,8 +10,20 @@ TEXTS: dict[str, dict[str, str]] = {
     "en": {
         "welcome": (
             "Hi{name}! Welcome to Peligrosa.\n"
-            "Swipe through the characters and pick someone to talk to."
+            "Swipe through the characters and pick someone to talk to.\n\n"
+            "The characters are fictional AI personalities, and this service is for adults (18+). /terms"
         ),
+        "cmd_deletedata": "Delete all my data",
+        "wipe_warning": (
+            "⚠️ This deletes <b>all your chats, messages and everything the characters remember about you</b>. "
+            "It cannot be undone.\n\n"
+            "Your account record, credit balance and payment history are kept (payment records may have to be "
+            "kept by law, and it prevents a new free trial). Continue?"
+        ),
+        "btn_wipe_confirm": "🗑 Yes, delete everything",
+        "wipe_done": "✅ Done. {conversations} chats and {memories} memories were deleted. You can start fresh any time.",
+        "wipe_cancelled": "Cancelled. Nothing was deleted.",
+        "wipe_failed": "Something went wrong and nothing was deleted. Please try again.",
         "menu_characters": "🎭 Characters",
         "menu_chats": "💬 My chats",
         "menu_history": "📜 History",
@@ -136,8 +148,20 @@ TEXTS: dict[str, dict[str, str]] = {
     "tr": {
         "welcome": (
             "Merhaba{name}! Peligrosa'ya hoş geldin.\n"
-            "Karakterlere göz at ve konuşmak istediğini seç."
+            "Karakterlere göz at ve konuşmak istediğini seç.\n\n"
+            "Karakterler kurgusal yapay zekâ kişilikleridir ve bu hizmet yetişkinler (18+) içindir. /terms"
         ),
+        "cmd_deletedata": "Tüm verilerimi sil",
+        "wipe_warning": (
+            "⚠️ Bu işlem <b>tüm sohbetlerini, mesajlarını ve karakterlerin senin hakkında hatırladığı her şeyi</b> siler. "
+            "Geri alınamaz.\n\n"
+            "Hesap kaydın, kredi bakiyen ve ödeme geçmişin saklanır (ödeme kayıtları yasal olarak tutulmak zorunda "
+            "olabilir, ayrıca yeni bir ücretsiz deneme alınmasını engeller). Devam edelim mi?"
+        ),
+        "btn_wipe_confirm": "🗑 Evet, hepsini sil",
+        "wipe_done": "✅ Tamam. {conversations} sohbet ve {memories} hafıza silindi. İstediğin zaman baştan başlayabilirsin.",
+        "wipe_cancelled": "İptal edildi. Hiçbir şey silinmedi.",
+        "wipe_failed": "Bir sorun oldu ve hiçbir şey silinmedi. Lütfen tekrar dene.",
         "menu_characters": "🎭 Karakterler",
         "menu_chats": "💬 Sohbetlerim",
         "menu_history": "📜 Geçmiş",
