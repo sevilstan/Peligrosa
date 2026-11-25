@@ -56,8 +56,17 @@ gives credits with `/grant <telegram_id> <credits>`. Subscriptions are set in
   reachable only inside the container; `docker ps` shows healthy/unhealthy).
 - Point an uptime service at `/health` through a reverse proxy only if you
   need outside checks; never publish the port directly.
-- Counters live in memory and restart with the bot. Error alerts (e.g.
-  Sentry) and database backups are separate, still-open items.
+- Counters live in memory and restart with the bot.
+- **Error alerts:** set `ADMIN_TELEGRAM_IDS` and every operator gets a Telegram
+  message for each ERROR our code logs (unhandled errors, AI provider failures,
+  "payment received but not delivered") and a "Bot started" message after each
+  restart. Operators must press /start in the bot once, otherwise Telegram
+  refuses the message (logged as a warning). The same problem is sent once per
+  `ALERT_DEDUP_SECONDS` with a count of held-back repeats; `ALERT_MAX_PER_HOUR`
+  caps the total. Alerts contain the logger name and message only, never a
+  traceback or user text. They cannot tell you the whole bot or server is down:
+  also point an outside uptime service at `/health`. Database backups are a
+  separate, still-open item.
 
 ## 4. Rate limits and cost (important before real users)
 

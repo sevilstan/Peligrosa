@@ -48,8 +48,10 @@ class UsageTrackingProvider(AIProvider):
 
         try:
             answer = await self.inner.generate_response(system_prompt, messages)
-        except Exception:
+        except Exception as exc:
             usage.failures += 1
+            # One (deduplicated) alert for the operator; type only, never text.
+            logger.error("AI provider call failed: %s", type(exc).__name__)
             raise
         finally:
             usage.seconds += self._clock() - started
