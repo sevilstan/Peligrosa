@@ -9,3 +9,4 @@ from app.models.character_memory import CharacterMemory
 from app.models.character_relationship import CharacterRelationship
 from app.models.character_emotion import CharacterEmotion
 from app.models.credit_transaction import CreditTransaction
+from app.models.star_payment import StarPayment

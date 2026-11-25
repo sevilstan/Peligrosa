@@ -52,7 +52,16 @@ class Settings(BaseSettings):
     GROUP_MESSAGE_COST: int = 2
     GROUP_CREATE_COST: int = 50
     IMAGE_COST: int = 5
-    SUBSCRIBER_DAILY_MESSAGE_CAP: int = 300
+    # Subscription ("sub"): bought with Telegram Stars. Nothing is unlimited:
+    # messages are included only up to the daily cap.
+    SUB_PRICE_STARS: int = 400  # 0 = no subscription on sale
+    SUB_DAYS: int = 30
+    SUB_DAILY_MESSAGE_CAP: int = 100
+    SUB_GROUP_CREATE_FREE: bool = True
+    SUB_BONUS_CREDITS: int = 0  # credits that come with each purchase
+    # Credit packs for sale, "credits:stars" separated by commas.
+    CREDIT_PACKS: str = "100:50,300:125,1000:350"
+    SUPPORT_CONTACT: str = ""  # shown by /support and /paysupport (e.g. @name)
     ADMIN_TELEGRAM_IDS: str = ""  # comma separated Telegram ids who may grant credits
 
     # Health endpoint (GET /health, /stats) for uptime checks. 0 = off.

@@ -30,6 +30,10 @@ _COMMANDS = (
     ("delete", "cmd_delete"),
     ("proactive", "cmd_proactive"),
     ("credits", "cmd_credits"),
+    ("buy", "cmd_buy"),
+    ("terms", "cmd_terms"),
+    ("support", "cmd_support"),
+    ("paysupport", "cmd_paysupport"),
 )
 
 

@@ -161,7 +161,7 @@ def test_a_group_message_costs_two(run_db, tmp_path, credits_on, monkeypatch):
 
 
 def test_daily_cap_is_explained(run_db, tmp_path, credits_on, monkeypatch):
-    monkeypatch.setattr(settings, "SUBSCRIBER_DAILY_MESSAGE_CAP", 1)
+    monkeypatch.setattr(settings, "SUB_DAILY_MESSAGE_CAP", 1)
 
     async def scenario(maker):
         bot = await started(maker, tmp_path)

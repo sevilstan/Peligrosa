@@ -13,6 +13,8 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import (
     EditMessageMedia,
     EditMessageText,
+    RefundStarPayment,
+    SendInvoice,
     SendMessage,
     SendPhoto,
 )
@@ -39,6 +41,7 @@ class FakeSession(BaseSession):
         self.edit_text_error: str | None = None
         self.edit_media_error: str | None = None
         self.photo_error: str | None = None
+        self.refund_error: str | None = None
 
     async def make_request(self, bot, method, timeout=None):
         data = method.model_dump(exclude_none=True)
@@ -51,7 +54,10 @@ class FakeSession(BaseSession):
         if isinstance(method, SendPhoto) and self.photo_error:
             raise TelegramBadRequest(method=method, message=self.photo_error)
 
-        if isinstance(method, (SendMessage, EditMessageText, SendPhoto, EditMessageMedia)):
+        if isinstance(method, RefundStarPayment) and self.refund_error:
+            raise TelegramBadRequest(method=method, message=self.refund_error)
+
+        if isinstance(method, (SendMessage, EditMessageText, SendPhoto, EditMessageMedia, SendInvoice)):
             photo = None
             if isinstance(method, (SendPhoto, EditMessageMedia)):
                 photo = [PhotoSize(file_id="tg-file-id", file_unique_id="u", width=1, height=1)]
@@ -118,6 +124,32 @@ def callback_update(data, *, user_id=1001, first="Ada", lang="en", has_photo=Fal
             "message": message,
         },
     }
+
+
+def pre_checkout_update(payload, total, *, currency="XTR", user_id=1001, first="Ada", lang="en"):
+    return {
+        "update_id": 3,
+        "pre_checkout_query": {
+            "id": "pcq1",
+            "from": _from(user_id, False, first, lang),
+            "currency": currency,
+            "total_amount": total,
+            "invoice_payload": payload,
+        },
+    }
+
+
+def successful_payment_update(payload, total, charge_id, *, user_id=1001, first="Ada", lang="en"):
+    update = message_update("x", user_id=user_id, first=first, lang=lang)
+    del update["message"]["text"]
+    update["message"]["successful_payment"] = {
+        "currency": "XTR",
+        "total_amount": total,
+        "invoice_payload": payload,
+        "telegram_payment_charge_id": charge_id,
+        "provider_payment_charge_id": "",
+    }
+    return update
 
 
 class Harness:

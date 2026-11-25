@@ -39,7 +39,14 @@ class UserMiddleware(BaseMiddleware):
         tg_user = data.get("event_from_user")
         chat = data.get("event_chat")
 
-        if tg_user is None or tg_user.is_bot or chat is None or chat.type != "private":
+        # A pre-checkout query (payment approval) has a user but no chat.
+        needs_private_chat = event.pre_checkout_query is None
+
+        if (
+            tg_user is None
+            or tg_user.is_bot
+            or (needs_private_chat and (chat is None or chat.type != "private"))
+        ):
             return None
 
         service = TelegramUserService(data["session"])
