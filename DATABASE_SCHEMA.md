@@ -286,3 +286,16 @@ The trial (`TRIAL_CREDITS`) is granted once, lazily, the first time credits are 
 | `created_at` | `TIMESTAMPTZ` | False | index on `(user_id, created_at)` |
 
 Holds amounts and reasons only, never message text.
+
+### `star_payments` (migration `a85b1c6e4f54`)
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `UUID` | False | PK |
+| `user_id` | `UUID` | False | FK `users.id`, `ON DELETE CASCADE` |
+| `telegram_charge_id` | `VARCHAR(255)` | False | **unique**: a repeated notification is applied once |
+| `product` | `VARCHAR(40)` | False | `pack<credits>` or `sub` |
+| `stars` | `INTEGER` | False | |
+| `credits_granted` / `days_granted` | `INTEGER` | False | what the payment gave |
+| `status` | `VARCHAR(20)` | False | `paid`, `refunded`, `needs_review` |
+| `created_at` / `refunded_at` | `TIMESTAMPTZ` | False / True | |

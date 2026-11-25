@@ -44,9 +44,28 @@ production**, otherwise cost is unbounded. When on: a new user gets
 `TRIAL_CREDITS` once, a message costs `MESSAGE_COST`, a group message
 `GROUP_MESSAGE_COST`, creating a group `GROUP_CREATE_COST` (free for
 subscribers). A failed AI reply is refunded. Users see their balance with
-`/credits`. Until payments exist, an operator listed in `ADMIN_TELEGRAM_IDS`
-gives credits with `/grant <telegram_id> <credits>`. Subscriptions are set in
-`users.subscription_until` (no payment flow yet).
+`/credits`. An operator listed in `ADMIN_TELEGRAM_IDS` can give credits with
+`/grant <telegram_id> <credits>`.
+
+### Selling with Telegram Stars
+
+`/buy` shows what is on sale; payment is in Stars only (Telegram requires it
+for digital goods, no payment provider token is needed). Everything is set in
+`.env`: `CREDIT_PACKS` (`credits:stars,...`), `SUB_PRICE_STARS`, `SUB_DAYS`,
+`SUB_DAILY_MESSAGE_CAP`, `SUB_GROUP_CREATE_FREE`, `SUB_BONUS_CREDITS`.
+Nothing is unlimited: a subscriber has a daily message cap.
+
+- Telegram approves each payment with us for only 10 seconds; the bot answers
+  quickly and delivers only after `successful_payment`.
+- Delivery is idempotent (the Telegram charge id is unique) and saved in one
+  transaction with the credits. A payment for something no longer on sale is
+  stored as `needs_review` and logged as an error with its charge id.
+- `/refund <telegram_charge_id>` (operators): Telegram returns the Stars first;
+  only if that works the credits/subscription days are taken back.
+- Telegram requires `/terms`, `/support` and `/paysupport`. Set
+  `SUPPORT_CONTACT`, and have a professional review the terms text in
+  `app/telegram/texts.py` (`terms_text`) before going live. You are responsible
+  for disputes. Test payments in Telegram's test environment first.
 
 ## Monitoring basics
 
