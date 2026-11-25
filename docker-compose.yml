@@ -27,6 +27,7 @@ services:
     env_file: .env
     environment:
       APP_ENV: production
+      HEALTH_PORT: 8080  # inside the container only; the Dockerfile health check uses it
       DATABASE_URL: postgresql+asyncpg://peligrosa:${POSTGRES_PASSWORD}@db:5432/peligrosa
 
 volumes:

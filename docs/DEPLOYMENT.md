@@ -37,6 +37,17 @@ git pull
 docker compose up -d --build   # migrations run automatically
 ```
 
+## Monitoring basics
+
+- `GET /health` answers 200 when the bot's database works, 503 otherwise;
+  `GET /stats` shows AI calls, failures, average seconds and prompt/answer
+  sizes per day (no user text). Enable with `HEALTH_PORT` (compose sets 8080,
+  reachable only inside the container; `docker ps` shows healthy/unhealthy).
+- Point an uptime service at `/health` through a reverse proxy only if you
+  need outside checks; never publish the port directly.
+- Counters live in memory and restart with the bot. Error alerts (e.g.
+  Sentry) and database backups are separate, still-open items.
+
 ## 4. Rate limits and cost (important before real users)
 
 All AI calls go through one limiter (`AI_MAX_REQUESTS_PER_MINUTE`, default 25
