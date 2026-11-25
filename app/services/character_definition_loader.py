@@ -14,6 +14,7 @@ MAX_AGE = 120
 _SHORT_LIMIT = 60
 _BIO_LIMIT = 600
 _HIGHLIGHT_LIMIT = 40
+_APPEARANCE_LIMIT = 500
 MAX_HIGHLIGHTS = 5
 
 
@@ -42,6 +43,9 @@ class CharacterDefinition:
     personality: Mapping[str, tuple[str, ...]]
     system_prompt: str
     profile: CharacterProfile | None = None
+    # How the character looks (hair, eyes, style...). Used only to draw her;
+    # without it no picture can be made, so a face is never invented.
+    appearance: str = ""
 
 
 class CharacterDefinitionLoader:
@@ -88,13 +92,26 @@ class CharacterDefinitionLoader:
                 f"but YAML declares '{file_slug}'."
             )
 
+        profile = self._parse_profile(data.get("profile"), slug)
+        appearance = self._profile_text(
+            data.get("appearance"), "appearance", slug, _APPEARANCE_LIMIT
+        )
+        if appearance and (profile is None or profile.age is None):
+            # Pictures are only drawn of adults: the age must be stated (18+
+            # is enforced by the profile parser).
+            raise ValueError(
+                f"Character '{slug}' has an appearance but no profile age; "
+                "pictures need a stated adult age."
+            )
+
         return CharacterDefinition(
             name=name,
             slug=file_slug,
             description=description,
             personality=personality,
             system_prompt=system_prompt,
-            profile=self._parse_profile(data.get("profile"), slug),
+            profile=profile,
+            appearance=appearance,
         )
 
     @staticmethod
