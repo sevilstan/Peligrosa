@@ -79,6 +79,24 @@ is told this before confirming. Backups taken earlier still contain the old
 data until they expire: set a backup retention period and say so in your
 privacy policy. Data export is not implemented yet.
 
+### Training data and backups
+
+Chats may be used to train models (the terms say so, and say that deleting
+removes the data from training data and backups). To keep that promise:
+
+- Build datasets only with `python -m scripts.export_training_data --out
+  file.jsonl`: it skips users who used `/deletedata` (and deactivated users)
+  and replaces user ids with pseudonyms (needs `TRAINING_EXPORT_SALT`). Chat
+  text can still contain personal details: protect exports like personal data.
+- Before each new training run, run `--deleted-pseudonyms` and remove those
+  users from every older export you keep.
+- After **restoring a backup**, run `python -m scripts.reapply_deletions
+  <file>`; the bot logs `User data deleted: user_id=...` for every deletion, so
+  `grep "User data deleted" bot.log > deleted_users.txt` is enough. Keep these
+  log lines for as long as you keep backups. Delete old backups on a schedule.
+- A model that was already trained on someone's chats cannot be "untrained":
+  decide the policy for that with a legal adviser before the first training run.
+
 ## Monitoring basics
 
 - `GET /health` answers 200 when the bot's database works, 503 otherwise;

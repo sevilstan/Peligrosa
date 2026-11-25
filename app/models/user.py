@@ -70,6 +70,12 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # Set when the user used /deletedata. Training exports skip these users, and
+    # the list of them is used to purge older exports and restored backups.
+    data_deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

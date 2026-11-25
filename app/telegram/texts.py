@@ -18,7 +18,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "⚠️ This deletes <b>all your chats, messages and everything the characters remember about you</b>. "
             "It cannot be undone.\n\n"
             "Your account record, credit balance and payment history are kept (payment records may have to be "
-            "kept by law, and it prevents a new free trial). Continue?"
+            "kept by law, and it prevents a new free trial). It is also removed from our training data. Continue?"
         ),
         "btn_wipe_confirm": "🗑 Yes, delete everything",
         "wipe_done": "✅ Done. {conversations} chats and {memories} memories were deleted. You can start fresh any time.",
@@ -82,6 +82,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Credits and subscriptions are digital items paid with Telegram Stars.\n"
             "• Credits are used by sending messages; a failed reply is refunded automatically.\n"
             "• Characters are fictional AI characters. You must be 18 or older.\n"
+            "• Your chats may be used to improve the service and to train our models. "
+            "If you delete your data with /deletedata, we remove it from our training data and backups.\n"
             "• Telegram and Telegram support cannot help with purchases made in this bot. Use /paysupport.\n"
             "• Refunds are handled case by case through /paysupport."
         ),
@@ -156,7 +158,7 @@ TEXTS: dict[str, dict[str, str]] = {
             "⚠️ Bu işlem <b>tüm sohbetlerini, mesajlarını ve karakterlerin senin hakkında hatırladığı her şeyi</b> siler. "
             "Geri alınamaz.\n\n"
             "Hesap kaydın, kredi bakiyen ve ödeme geçmişin saklanır (ödeme kayıtları yasal olarak tutulmak zorunda "
-            "olabilir, ayrıca yeni bir ücretsiz deneme alınmasını engeller). Devam edelim mi?"
+            "olabilir, ayrıca yeni bir ücretsiz deneme alınmasını engeller). Eğitim verimizden de çıkarılır. Devam edelim mi?"
         ),
         "btn_wipe_confirm": "🗑 Evet, hepsini sil",
         "wipe_done": "✅ Tamam. {conversations} sohbet ve {memories} hafıza silindi. İstediğin zaman baştan başlayabilirsin.",
@@ -220,6 +222,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Kredi ve abonelik, Telegram Yıldızları ile ödenen dijital ürünlerdir.\n"
             "• Krediler mesaj yazarak harcanır; cevap alınamazsa kredi otomatik iade edilir.\n"
             "• Karakterler kurgusal yapay zekâ karakterleridir. 18 yaşında veya daha büyük olmalısın.\n"
+            "• Sohbetlerin hizmeti geliştirmek ve modellerimizi eğitmek için kullanılabilir. "
+            "/deletedata ile verini silersen eğitim verimizden ve yedeklerimizden de çıkarırız.\n"
             "• Telegram ve Telegram desteği bu bottaki satın almalarda yardımcı olamaz. /paysupport kullan.\n"
             "• İadeler /paysupport üzerinden tek tek değerlendirilir."
         ),
