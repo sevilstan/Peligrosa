@@ -67,6 +67,18 @@ Nothing is unlimited: a subscriber has a daily message cap.
   `app/telegram/texts.py` (`terms_text`) before going live. You are responsible
   for disputes. Test payments in Telegram's test environment first.
 
+## Privacy: /deletedata
+
+A user can delete all their data with `/deletedata` (two steps: warning, then a
+confirm button). It removes every chat and message, the characters' memories of
+the user, the user's own memory records, and the relationship/mood data. It
+keeps the account row (Telegram id, credit balance, subscription end) and the
+credit/payment records: payment records may have to be kept by law, and
+keeping the row stops a deleted account from taking a new free trial. The user
+is told this before confirming. Backups taken earlier still contain the old
+data until they expire: set a backup retention period and say so in your
+privacy policy. Data export is not implemented yet.
+
 ## Monitoring basics
 
 - `GET /health` answers 200 when the bot's database works, 503 otherwise;
