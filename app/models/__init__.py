@@ -8,3 +8,4 @@ from app.models.user_memory import UserMemory
 from app.models.character_memory import CharacterMemory
 from app.models.character_relationship import CharacterRelationship
 from app.models.character_emotion import CharacterEmotion
+from app.models.credit_transaction import CreditTransaction

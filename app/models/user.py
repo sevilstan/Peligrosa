@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -56,6 +56,18 @@ class User(Base):
         default=False,
         server_default="false",
         nullable=False,
+    )
+
+    # Credits: every user message spends some; a subscription (until the given
+    # time) replaces spending. The trial is granted once, lazily.
+    credits: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    subscription_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    trial_granted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(
