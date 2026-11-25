@@ -12,6 +12,7 @@ COPY alembic.ini .
 COPY app ./app
 COPY migrations ./migrations
 COPY characters ./characters
+COPY scripts ./scripts
 
 # Not root.
 RUN useradd --create-home --uid 10001 bot
