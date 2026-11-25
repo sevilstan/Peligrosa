@@ -5,6 +5,7 @@ import uuid
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -23,6 +24,12 @@ from app.services.chat_session_service import (
     InvalidGroupError,
     ChatNotAvailableError,
     ChatSessionService,
+)
+from app.services.credit_service import (
+    CreditConfig,
+    CreditService,
+    DailyCapReached,
+    InsufficientCredits,
 )
 from app.services.group_conversation_service import FOLLOWUP_CHANCE, GroupConversationService
 from app.services.conversation_service import AIResponseError, ConversationService
@@ -516,9 +523,16 @@ async def group_done(
         return
 
     service = ChatSessionService(session, provider)
+    receipt = await _charge_or_explain(
+        callback, session, user, CreditConfig.from_settings(settings).group_create_cost, "group_create"
+    )
+    if receipt is None:
+        return
+
     try:
         context = await service.create_group(user.id, selected)
     except InvalidGroupError as exc:
+        await _credits(session).refund(receipt)
         key, values = {
             "too_few": ("group_min", {"min": GROUP_MIN_CHARACTERS}),
             "too_many": ("group_max", {"max": GROUP_MAX_CHARACTERS}),
@@ -534,6 +548,96 @@ async def group_done(
 
     if isinstance(callback.message, Message):
         await _announce_chat(callback.message, service, user, context)
+
+
+# --------------------------------------------------------------- credits
+
+
+def _credits(session: AsyncSession) -> CreditService:
+    return CreditService(session, CreditConfig.from_settings(settings))
+
+
+def _admin_ids() -> set[int]:
+    ids = set()
+    for part in settings.ADMIN_TELEGRAM_IDS.split(","):
+        part = part.strip()
+        if part.lstrip("-").isdigit():
+            ids.add(int(part))
+    return ids
+
+
+async def credits_command(message: Message, session: AsyncSession, user: User) -> None:
+    language = user.language_code
+    config = CreditConfig.from_settings(settings)
+
+    if not config.enabled:
+        await message.answer(t(language, "credits_off"))
+        return
+
+    service = _credits(session)
+    await service.ensure_trial(user.id)
+    status = await service.status(user.id)
+
+    key = "credits_subscribed" if status.subscribed else "credits_balance"
+    await message.answer(
+        t(
+            language,
+            key,
+            credits=status.credits,
+            until=status.subscription_until.strftime("%Y-%m-%d") if status.subscription_until else "-",
+            message=config.message_cost,
+            group_message=config.group_message_cost,
+            group_create=config.group_create_cost,
+        )
+    )
+
+
+async def grant_command(
+    message: Message, command: CommandObject, session: AsyncSession, user: User
+) -> None:
+    """Operator only: /grant <telegram_id> <amount>. Anyone else just gets the
+    "unknown command" answer, so the command's existence is not revealed."""
+    if user.telegram_id not in _admin_ids():
+        await unknown_command(message, user)
+        return
+
+    parts = (command.args or "").split()
+    if len(parts) != 2 or not parts[0].lstrip("-").isdigit() or not parts[1].isdigit() or int(parts[1]) < 1:
+        await message.answer("Usage: /grant <telegram_id> <credits>")
+        return
+
+    target = (
+        await session.execute(select(User).where(User.telegram_id == int(parts[0])))
+    ).scalar_one_or_none()
+    if target is None:
+        await message.answer("No user with that Telegram id.")
+        return
+
+    balance = await CreditService(session, CreditConfig(enabled=True)).grant(target.id, int(parts[1]))
+    await message.answer(f"Granted {int(parts[1])}. New balance: {balance}.")
+
+
+async def _charge_or_explain(message_or_callback, session, user, cost, reason, conversation_id=None):
+    """Charge, or tell the user why not. Returns the receipt, or None."""
+    language = user.language_code
+    config = CreditConfig.from_settings(settings)
+    is_callback = isinstance(message_or_callback, CallbackQuery)
+
+    try:
+        return await CreditService(session, config).charge(
+            user.id, cost, reason, conversation_id=conversation_id
+        )
+    except InsufficientCredits as exc:
+        key = "group_needs_credits" if reason == "group_create" else "credits_empty"
+        text = t(language, key, cost=exc.needed, credits=exc.available)
+    except DailyCapReached:
+        text = t(language, "daily_cap")
+
+    if is_callback:
+        await message_or_callback.answer(text, show_alert=True)
+    else:
+        await message_or_callback.answer(text)
+    return None
 
 
 # ------------------------------------------------------------- messaging
@@ -572,8 +676,22 @@ async def chat_text(
         await message.answer(t(language, "no_active_chat"), reply_markup=main_menu(language))
         return
 
+    config = CreditConfig.from_settings(settings)
+    receipt = await _charge_or_explain(
+        message,
+        session,
+        user,
+        config.group_message_cost if active.is_group else config.message_cost,
+        "group_message" if active.is_group else "message",
+        active.conversation_id,
+    )
+    if receipt is None:
+        return
+
     if active.is_group:
-        await _group_text(message, bot, session, user, provider, active.conversation_id, text)
+        await _group_text(
+            message, bot, session, user, provider, active.conversation_id, text, receipt
+        )
         return
 
     try:
@@ -584,9 +702,11 @@ async def chat_text(
                 content=text,
             )
     except AIResponseError:
+        await _credits(session).refund(receipt)
         await message.answer(t(language, "ai_error"))
         return
     except ValueError:
+        await _credits(session).refund(receipt)
         logger.warning("Chat message could not be sent: conversation unavailable.")
         await message.answer(t(language, "chat_unavailable"))
         return
@@ -594,7 +714,9 @@ async def chat_text(
     await _send_as(message, active.name, reply.content)
 
 
-async def _group_text(message, bot, session, user, provider, conversation_id, text) -> None:
+async def _group_text(
+    message, bot, session, user, provider, conversation_id, text, receipt=None
+) -> None:
     language = user.language_code
 
     async def deliver(reply) -> None:
@@ -612,8 +734,12 @@ async def _group_text(message, bot, session, user, provider, conversation_id, te
                 on_reply=deliver,
             )
     except AIResponseError:
+        if receipt is not None:
+            await _credits(session).refund(receipt)
         await message.answer(t(language, "ai_error"))
     except ValueError:
+        if receipt is not None:
+            await _credits(session).refund(receipt)
         logger.warning("Group message could not be sent: group unavailable.")
         await message.answer(t(language, "chat_unavailable"))
 
@@ -641,6 +767,8 @@ def build_router() -> Router:
     router.message.register(group_command, Command("newgroup"))
     router.message.register(delete_command, Command("delete"))
     router.message.register(proactive_command, Command("proactive"))
+    router.message.register(credits_command, Command("credits"))
+    router.message.register(grant_command, Command("grant"))
     router.message.register(unknown_command, F.text.startswith("/"))
     router.message.register(chat_text, F.text)
     router.message.register(non_text)

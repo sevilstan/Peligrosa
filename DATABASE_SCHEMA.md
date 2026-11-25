@@ -262,3 +262,27 @@ How many messages the group feelings reflection has already looked at (migration
 | `proactive_enabled` | `BOOLEAN` | False | `false` |
 
 Opt-in for characters writing first (`/proactive on`). Existing users stay opted out (migration `e63f9a4c2d32`). Messages written this way have `messages.message_type = 'initiative'` (no schema change).
+
+### `users` (credits, migration `f74a0b5d3e43`)
+
+| Column | Type | Nullable | Default |
+|---|---|---|---|
+| `credits` | `INTEGER` | False | `0` |
+| `subscription_until` | `TIMESTAMPTZ` | True | |
+| `trial_granted_at` | `TIMESTAMPTZ` | True | |
+
+The trial (`TRIAL_CREDITS`) is granted once, lazily, the first time credits are checked (also for existing users).
+
+### `credit_transactions`
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `UUID` | False | PK |
+| `user_id` | `UUID` | False | FK `users.id`, `ON DELETE CASCADE` |
+| `amount` | `INTEGER` | False | negative = spent, positive = trial/grant/refund, 0 = covered by a subscription |
+| `balance_after` | `INTEGER` | False | |
+| `reason` | `VARCHAR(30)` | False | `trial`, `message`, `group_message`, `group_create`, `refund`, `admin_grant`, ... |
+| `conversation_id` | `UUID` | True | no foreign key on purpose |
+| `created_at` | `TIMESTAMPTZ` | False | index on `(user_id, created_at)` |
+
+Holds amounts and reasons only, never message text.

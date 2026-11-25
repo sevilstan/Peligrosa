@@ -44,6 +44,17 @@ class Settings(BaseSettings):
     AI_MAX_CONCURRENT_REQUESTS: int = 4
     AI_MAX_QUEUE_WAIT_SECONDS: float = 60.0
 
+    # Credits. Off = no limits (development). When on, every new user gets
+    # TRIAL_CREDITS once; a subscriber spends nothing but is capped per day.
+    CREDITS_ENABLED: bool = False
+    TRIAL_CREDITS: int = 10
+    MESSAGE_COST: int = 1
+    GROUP_MESSAGE_COST: int = 2
+    GROUP_CREATE_COST: int = 50
+    IMAGE_COST: int = 5
+    SUBSCRIBER_DAILY_MESSAGE_CAP: int = 300
+    ADMIN_TELEGRAM_IDS: str = ""  # comma separated Telegram ids who may grant credits
+
     # Health endpoint (GET /health, /stats) for uptime checks. 0 = off.
     HEALTH_PORT: int = 0
     HEALTH_HOST: str = "127.0.0.1"

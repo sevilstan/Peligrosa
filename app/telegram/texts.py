@@ -46,6 +46,26 @@ TEXTS: dict[str, dict[str, str]] = {
         "proactive_off": "Okay, characters will only answer when you write.",
         "proactive_unavailable": "This feature is not active yet.",
         "cmd_proactive": "Let characters message first (on/off)",
+        "cmd_credits": "Your credits",
+        "credits_off": "Credits are not active right now.",
+        "credits_balance": (
+            "💳 You have <b>{credits}</b> credits.\n"
+            "A message costs {message}, a group message {group_message}, "
+            "creating a group {group_create}."
+        ),
+        "credits_subscribed": (
+            "⭐ Your subscription is active until <b>{until}</b>. "
+            "Messages and groups are included. Extra credits: {credits}."
+        ),
+        "credits_empty": (
+            "Your credits are used up. To keep chatting you need credits or a "
+            "subscription. Buying them will be available here soon."
+        ),
+        "daily_cap": "You reached today's message limit. Please come back tomorrow.",
+        "group_needs_credits": (
+            "Creating a group costs {cost} credits (free with a subscription). "
+            "You have {credits}."
+        ),
         "btn_delete": "🗑 Delete {name}",
         "btn_delete_yes": "🗑 Yes, delete",
         "delete_confirm": (
@@ -123,6 +143,25 @@ TEXTS: dict[str, dict[str, str]] = {
         "proactive_off": "Tamam, karakterler sadece sen yazınca cevap verecek.",
         "proactive_unavailable": "Bu özellik henüz aktif değil.",
         "cmd_proactive": "Karakterler ilk yazsın (açık/kapalı)",
+        "cmd_credits": "Kredilerin",
+        "credits_off": "Kredi sistemi şu an aktif değil.",
+        "credits_balance": (
+            "💳 <b>{credits}</b> kredin var.\n"
+            "Bir mesaj {message}, grup mesajı {group_message}, "
+            "grup kurmak {group_create} kredi."
+        ),
+        "credits_subscribed": (
+            "⭐ Aboneliğin <b>{until}</b> tarihine kadar aktif. "
+            "Mesajlar ve grup kurma dahil. Ekstra kredi: {credits}."
+        ),
+        "credits_empty": (
+            "Kredin bitti. Sohbete devam etmek için kredi ya da abonelik gerekiyor. "
+            "Satın alma çok yakında burada olacak."
+        ),
+        "daily_cap": "Bugünkü mesaj sınırına ulaştın. Lütfen yarın tekrar gel.",
+        "group_needs_credits": (
+            "Grup kurmak {cost} kredi (abonelikte ücretsiz). Senin {credits} kredin var."
+        ),
         "btn_delete": "🗑 {name} kişisini sil",
         "btn_delete_yes": "🗑 Evet, sil",
         "delete_confirm": (

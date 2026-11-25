@@ -29,6 +29,7 @@ _COMMANDS = (
     ("newgroup", "cmd_newgroup"),
     ("delete", "cmd_delete"),
     ("proactive", "cmd_proactive"),
+    ("credits", "cmd_credits"),
 )
 
 
