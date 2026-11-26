@@ -10,7 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.alerts import install_alerts, parse_admin_ids, remove_alerts
 from app.core.config import settings
+from app.providers.xavira_provider import XaviraImageProvider
+from app.services.character_definition_loader import CharacterDefinitionLoader
+from app.services.image_service import ImageFeature
+from app.services.image_storage import LocalImageStorage
 from app.telegram.avatars import AvatarProvider
+from app.telegram.photo_offers import PhotoOffers
 from app.telegram.chat_utils import UserLocks
 from app.telegram.group_drafts import GroupDrafts
 from app.services.initiative_service import InitiativeConfig
@@ -105,6 +110,27 @@ def build_ai_provider():
     )
 
 
+def build_image_feature() -> ImageFeature | None:
+    """Pictures in chats, or None when they are switched off. Switched on
+    without a key is a mistake worth stopping for, not a silent no-op."""
+    if not settings.IMAGES_ENABLED:
+        return None
+    if not settings.XAVIRA_API_KEY:
+        raise RuntimeError("IMAGES_ENABLED=true needs XAVIRA_API_KEY.")
+    return ImageFeature(
+        provider=XaviraImageProvider(
+            api_key=settings.XAVIRA_API_KEY,
+            base_url=settings.XAVIRA_BASE_URL,
+            resolution=settings.XAVIRA_RESOLUTION,
+            max_wait=settings.XAVIRA_MAX_WAIT_SECONDS,
+            low_balance=settings.XAVIRA_LOW_BALANCE,
+        ),
+        storage=LocalImageStorage(settings.IMAGE_STORAGE_DIR),
+        loader=CharacterDefinitionLoader(),
+        cache_min_variants=settings.IMAGE_CACHE_MIN_VARIANTS,
+    )
+
+
 def build_bot(token: str) -> Bot:
     return Bot(
         token=token,
@@ -117,12 +143,19 @@ def build_dispatcher(
     ai_provider=None,
     avatars: AvatarProvider | None = None,
     locks: UserLocks | None = None,
+    images: ImageFeature | None = None,
+    offers: PhotoOffers | None = None,
 ) -> Dispatcher:
     # Everything handlers need beyond the update itself is injected by name.
     dispatcher = Dispatcher(
         provider=ai_provider,
         avatars=avatars or AvatarProvider(),
         drafts=GroupDrafts(),
+        images=images,
+        offers=offers
+        or PhotoOffers(
+            ttl=settings.IMAGE_OFFER_TTL_SECONDS, cooldown=settings.IMAGE_OFFER_COOLDOWN_SECONDS
+        ),
     )
 
     # Order matters: message ordering first (before any database work),
@@ -163,6 +196,8 @@ async def set_commands(bot: Bot) -> None:
             commands = [
                 BotCommand(command=name, description=t(language, key)) for name, key in _COMMANDS
             ]
+            if settings.IMAGES_ENABLED:
+                commands.append(BotCommand(command="photo", description=t(language, "cmd_photo")))
             await bot.set_my_commands(
                 commands, language_code=None if language == "en" else language
             )
@@ -187,7 +222,9 @@ async def run() -> None:
 
     bot = build_bot(settings.TELEGRAM_BOT_TOKEN)
     locks = UserLocks()  # shared: a character never talks over a live chat
-    dispatcher = build_dispatcher(SessionLocal, ai_provider=provider, locks=locks)
+    dispatcher = build_dispatcher(
+        SessionLocal, ai_provider=provider, locks=locks, images=build_image_feature()
+    )
 
     if admin_ids:
         alert_handler, send_alert = install_alerts(

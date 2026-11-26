@@ -74,6 +74,9 @@ class Message(Base):
         nullable=False,
     )
 
+    # Key of a stored picture (see ImageStorage) for message_type "image".
+    image_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

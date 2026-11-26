@@ -15,7 +15,9 @@ COPY characters ./characters
 COPY scripts ./scripts
 
 # Not root.
-RUN useradd --create-home --uid 10001 bot
+RUN useradd --create-home --uid 10001 bot \
+    && mkdir -p /app/data/images \
+    && chown -R bot:bot /app/data
 USER bot
 
 # "docker ps" shows healthy/unhealthy from the bot's own /health endpoint.

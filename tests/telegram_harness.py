@@ -118,9 +118,9 @@ def photo_message_update(*, user_id=1001, lang="en"):
     return payload
 
 
-def callback_update(data, *, user_id=1001, first="Ada", lang="en", has_photo=False):
+def callback_update(data, *, user_id=1001, first="Ada", lang="en", has_photo=False, message_id=20):
     message = {
-        "message_id": 20,
+        "message_id": message_id,
         "date": int(time.time()),
         "chat": {"id": user_id, "type": "private"},
     }
@@ -165,14 +165,16 @@ def successful_payment_update(payload, total, charge_id, *, user_id=1001, first=
 
 
 class Harness:
-    def __init__(self, maker, avatar_dir: Path, provider=None):
+    def __init__(self, maker, avatar_dir: Path, provider=None, images=None):
         self.maker = maker
         self.provider = provider or ScriptedProvider()
         self.session = FakeSession()
         self.bot = Bot(token="123456:TEST", session=self.session)
         self.avatar_dir = avatar_dir
         self.avatars = AvatarProvider(avatar_dir)
-        self.dispatcher = build_dispatcher(maker, ai_provider=self.provider, avatars=self.avatars)
+        self.dispatcher = build_dispatcher(
+            maker, ai_provider=self.provider, avatars=self.avatars, images=images
+        )
 
     async def send(self, payload):
         update = Update.model_validate(payload, context={"bot": self.bot})

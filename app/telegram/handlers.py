@@ -6,7 +6,14 @@ import uuid
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import CallbackQuery, ForceReply, LabeledPrice, Message, PreCheckoutQuery
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    ForceReply,
+    LabeledPrice,
+    Message,
+    PreCheckoutQuery,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +53,9 @@ from app.telegram.chat_utils import (
     typing_indicator,
 )
 from app.telegram.keyboards import (
+    PHOTO_NO,
+    PHOTO_YES,
+    photo_offer_keyboard,
     WIPE_CANCEL,
     WIPE_CONFIRM,
     wipe_keyboard,
@@ -80,6 +90,11 @@ from app.telegram.keyboards import (
 )
 from app.telegram.group_drafts import GroupDrafts
 from app.telegram.slides import build_slide, edit_slide, send_slide, shorten
+from app.providers.image_base import ImageGenerationError, ImageGenerationRefused
+from app.services.image_prompt_builder import ImageNotAvailable
+from app.services.image_service import ImageFeature, ImageService, can_draw
+from app.services.photo_request import wants_photo
+from app.telegram.photo_offers import PhotoOffers
 from app.telegram.pacing import PacingConfig, gap_before_reply, play, split_bubbles
 from app.telegram.texts import all_labels, t
 
@@ -908,6 +923,8 @@ async def chat_text(
     session: AsyncSession,
     user: User,
     provider,
+    images: ImageFeature | None,
+    offers: PhotoOffers,
 ) -> None:
     language = user.language_code
     text = message.text.strip()[:_MAX_USER_TEXT]
@@ -957,6 +974,137 @@ async def chat_text(
         return
 
     await _send_as(message, active.name, reply.content)
+
+    # She was asked for a picture: offer one (the user still has to say yes).
+    if images is not None and wants_photo(text):
+        await _offer_photo(message, session, user, images, offers, active, text, explicit=False)
+
+
+async def photo_command(
+    message: Message,
+    session: AsyncSession,
+    user: User,
+    provider,
+    images: ImageFeature | None,
+    offers: PhotoOffers,
+) -> None:
+    """/photo and the "Request photo" menu button."""
+    language = user.language_code
+    if images is None:
+        await message.answer(t(language, "img_off"))
+        return
+
+    active = await ChatSessionService(session, provider).get_active(user.id)
+    if active is None:
+        await message.answer(t(language, "img_no_chat"), reply_markup=main_menu(language))
+        return
+    await _offer_photo(message, session, user, images, offers, active, None, explicit=True)
+
+
+async def _offer_photo(message, session, user, images, offers, active, request_text, *, explicit) -> None:
+    language = user.language_code
+    if active.is_group:
+        if explicit:
+            await message.answer(t(language, "img_group"))
+        return
+    if not can_draw(images, active.characters[0].slug):
+        if explicit:
+            await message.answer(t(language, "img_unavailable", name=html.escape(active.name)))
+        return
+    if not explicit and offers.recently_offered(active.conversation_id):
+        return
+
+    config = CreditConfig.from_settings(settings)
+    if config.enabled and config.image_cost > 0:
+        text = t(language, "img_offer", name=html.escape(active.name), cost=config.image_cost)
+    else:
+        text = t(language, "img_offer_free", name=html.escape(active.name))
+
+    sent = await message.answer(text, reply_markup=photo_offer_keyboard(language))
+    offers.add(sent.chat.id, sent.message_id, user.id, active.conversation_id, request_text)
+
+
+async def photo_no(callback: CallbackQuery, user: User, offers: PhotoOffers) -> None:
+    message = callback.message
+    if message is not None:
+        offers.pop(message.chat.id, message.message_id)
+        with contextlib.suppress(TelegramAPIError):
+            await message.delete()
+    await callback.answer()
+
+
+async def photo_yes(
+    callback: CallbackQuery,
+    bot: Bot,
+    session: AsyncSession,
+    user: User,
+    provider,
+    images: ImageFeature | None,
+    offers: PhotoOffers,
+) -> None:
+    language = user.language_code
+    message = callback.message
+    if message is None:
+        await callback.answer()
+        return
+
+    offer = offers.get(message.chat.id, message.message_id)
+    if images is None or offer is None or offer.user_id != user.id:
+        await callback.answer(t(language, "img_expired"), show_alert=True)
+        with contextlib.suppress(TelegramAPIError):
+            await message.delete()
+        return
+
+    # Pay first; a refused payment leaves the offer standing.
+    config = CreditConfig.from_settings(settings)
+    receipt = await _charge_or_explain(
+        callback,
+        session,
+        user,
+        config.image_cost,
+        "image",
+        offer.conversation_id,
+        included_in_subscription=False,
+    )
+    if receipt is None:
+        return
+
+    offers.pop(message.chat.id, message.message_id)
+    await callback.answer()
+
+    name = await _character_name(session, offer, provider, user)
+    with contextlib.suppress(TelegramAPIError):
+        await message.edit_text(t(language, "img_working", name=html.escape(name)), reply_markup=None)
+
+    failure_key = "img_failed"
+    try:
+        async with typing_indicator(bot, message.chat.id, "upload_photo"):
+            photo = await ImageService(session, images, provider).generate(
+                offer.conversation_id, user.id, offer.request_text
+            )
+        await bot.send_photo(message.chat.id, BufferedInputFile(photo.data, filename="photo.jpg"))
+    except ImageGenerationRefused:
+        failure_key = "img_refused"
+    except (ImageGenerationError, ImageNotAvailable, ValueError, TelegramAPIError) as exc:
+        logger.warning("A photo could not be delivered: %s", type(exc).__name__)
+    else:
+        with contextlib.suppress(TelegramAPIError):
+            await message.delete()
+        return
+
+    await _credits(session).refund(receipt)
+    with contextlib.suppress(TelegramAPIError):
+        await message.edit_text(t(language, failure_key, name=html.escape(name)))
+
+
+async def _character_name(session, offer, provider, user) -> str:
+    try:
+        _, character = await ConversationService(session, ai_provider=provider).get_direct_conversation(
+            offer.conversation_id, user.id
+        )
+        return character.name
+    except ValueError:
+        return ""
 
 
 async def _group_text(
@@ -1046,6 +1194,8 @@ def build_router() -> Router:
     router.message.register(history_command, F.text.in_(all_labels("menu_history")))
     router.message.register(new_chat_command, Command("new"))
     router.message.register(name_command, Command("name"))
+    router.message.register(photo_command, Command("photo"))
+    router.message.register(photo_command, F.text.in_(all_labels("menu_photo")))
     router.message.register(group_command, Command("newgroup"))
     router.message.register(delete_command, Command("delete"))
     router.message.register(proactive_command, Command("proactive"))
@@ -1068,6 +1218,8 @@ def build_router() -> Router:
     router.message.register(chat_text, F.text)
     router.message.register(non_text)
 
+    router.callback_query.register(photo_yes, F.data == PHOTO_YES)
+    router.callback_query.register(photo_no, F.data == PHOTO_NO)
     router.callback_query.register(gallery_page, F.data.startswith(GALLERY_PREFIX))
     router.callback_query.register(open_chat, F.data.startswith(OPEN_PREFIX))
     router.callback_query.register(new_chat, F.data.startswith(NEW_PREFIX))

@@ -66,6 +66,19 @@ class Settings(BaseSettings):
     GROUP_MESSAGE_COST: int = 2
     GROUP_CREATE_COST: int = 50
     IMAGE_COST: int = 5
+
+    # Pictures in chats (Xavira). Off until IMAGES_ENABLED=true and a key is set.
+    IMAGES_ENABLED: bool = False
+    XAVIRA_API_KEY: str = ""
+    XAVIRA_BASE_URL: str = "https://api.xavira.ai"
+    XAVIRA_RESOLUTION: str = "hd_portrait"  # sd_portrait is faster, same credit cost
+    XAVIRA_MAX_WAIT_SECONDS: float = 60.0
+    XAVIRA_LOW_BALANCE: int = 5  # operator alert when Xavira credits fall below this
+    IMAGE_STORAGE_DIR: str = "data/images"
+    IMAGE_CACHE_MIN_VARIANTS: int = 2  # 0 = never reuse; N = make N variants per scene, then reuse
+    IMAGE_OFFER_COOLDOWN_SECONDS: int = 60  # at most one offer per chat per minute
+    IMAGE_OFFER_TTL_SECONDS: int = 900  # an unanswered offer expires
+
     # Subscription ("sub"): bought with Telegram Stars. Nothing is unlimited:
     # messages are included only up to the daily cap.
     SUB_PRICE_STARS: int = 400  # 0 = no subscription on sale

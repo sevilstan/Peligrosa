@@ -45,13 +45,14 @@ class UserLocks:
 
 
 @contextlib.asynccontextmanager
-async def typing_indicator(bot: Bot, chat_id: int):
-    """Show "typing…" while the character is thinking (it expires after 5s)."""
+async def typing_indicator(bot: Bot, chat_id: int, action: str = "typing"):
+    """Show "typing…" (or e.g. "upload_photo") while the character works. It
+    expires after 5s, so it is repeated."""
 
     async def keep_typing():
         while True:
             with contextlib.suppress(Exception):
-                await bot.send_chat_action(chat_id, "typing")
+                await bot.send_chat_action(chat_id, action)
             await asyncio.sleep(4)
 
     task = asyncio.create_task(keep_typing())

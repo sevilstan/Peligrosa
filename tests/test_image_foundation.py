@@ -90,3 +90,20 @@ def test_local_storage_round_trip_and_key_safety(tmp_path):
                 await storage.save(*args)
 
     asyncio.run(scenario())
+
+
+def test_image_character_id_is_optional_and_checked(tmp_path):
+    assert load(tmp_path, "").image_character_id == ""
+    assert load(tmp_path, PROFILE + "image_character_id: ' 151fccbd-4667-43fc '\n").image_character_id == (
+        "151fccbd-4667-43fc"
+    )
+    for bad in ("short", "has spaces in it!", "x" * 70, "[1, 2]"):
+        with pytest.raises(ValueError, match="image_character_id"):
+            load(tmp_path, PROFILE + f"image_character_id: '{bad}'\n" if bad != "[1, 2]" else PROFILE + "image_character_id: [1, 2]\n")
+
+
+def test_image_character_id_needs_a_stated_adult_age(tmp_path):
+    with pytest.raises(ValueError, match="age"):
+        load(tmp_path, "image_character_id: 151fccbd-4667-43fc\n")
+    with pytest.raises(ValueError, match="age"):
+        load(tmp_path, "profile:\n  age: 17\nimage_character_id: 151fccbd-4667-43fc\n")

@@ -56,7 +56,10 @@ class TrainingExportService:
                 rows = (
                     await self.session.execute(
                         select(Message)
-                        .where(Message.conversation_id == conversation.id)
+                        .where(
+                            Message.conversation_id == conversation.id,
+                            Message.message_type != "image",  # a picture has no words to learn from
+                        )
                         .order_by(Message.created_at, Message.id)
                     )
                 ).scalars().all()

@@ -10,3 +10,5 @@ build/
 # Environment files
 .env.*
 !.env.example
+# Generated pictures (kept in a volume in production)
+data/

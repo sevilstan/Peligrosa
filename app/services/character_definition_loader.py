@@ -7,6 +7,7 @@ import yaml
 
 
 _SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_IMAGE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
 
 MIN_AGE = 18  # every character is an adult
@@ -46,6 +47,9 @@ class CharacterDefinition:
     # How the character looks (hair, eyes, style...). Used only to draw her;
     # without it no picture can be made, so a face is never invented.
     appearance: str = ""
+    # The id of this person at the image service (made once in its dashboard).
+    # Without it, and without a stated adult age, no picture is made.
+    image_character_id: str = ""
 
 
 class CharacterDefinitionLoader:
@@ -104,6 +108,13 @@ class CharacterDefinitionLoader:
                 "pictures need a stated adult age."
             )
 
+        image_character_id = self._image_character_id(data.get("image_character_id"), slug)
+        if image_character_id and (profile is None or profile.age is None):
+            raise ValueError(
+                f"Character '{slug}' has an image_character_id but no profile age; "
+                "pictures need a stated adult age."
+            )
+
         return CharacterDefinition(
             name=name,
             slug=file_slug,
@@ -112,7 +123,18 @@ class CharacterDefinitionLoader:
             system_prompt=system_prompt,
             profile=profile,
             appearance=appearance,
+            image_character_id=image_character_id,
         )
+
+    @staticmethod
+    def _image_character_id(value: object, slug: str) -> str:
+        if value is None or value == "":
+            return ""
+        if not isinstance(value, str) or not _IMAGE_ID_PATTERN.fullmatch(value.strip()):
+            raise ValueError(
+                f"Character '{slug}' image_character_id must be 8-64 letters, digits, - or _."
+            )
+        return value.strip()
 
     @staticmethod
     def _profile_text(value: object, key: str, slug: str, limit: int) -> str:
