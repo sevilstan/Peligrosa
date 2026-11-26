@@ -288,10 +288,20 @@ class ConversationService:
         if prompt_character is None:
             prompt_character = character
 
+        # Only a name the user typed themselves is used: Telegram's own name is
+        # often a nickname, and it should not reach the AI provider by default.
+        name_row = (
+            await self.session.execute(
+                select(User.display_name, User.name_status).where(User.id == user_id)
+            )
+        ).first()
+        user_name = name_row.display_name if name_row and name_row.name_status == "custom" else None
+
         return self.prompt_builder.build(
             character=prompt_character,
             memories=memories,
             summary=conversation.summary,
+            user_name=user_name,
         )
 
     async def get_conversation_history(

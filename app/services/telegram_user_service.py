@@ -24,6 +24,21 @@ def normalize_language_code(code: str | None) -> str:
     return match.group(0) if match else DEFAULT_LANGUAGE
 
 
+_NAME_PATTERN = re.compile(r"^[\w .'\-]{1,40}$")
+
+
+def clean_name(raw: str | None) -> str | None:
+    """A name the user typed, or None when it is not a plausible name.
+
+    The name goes into AI prompts, so only letters, digits, spaces and . ' -
+    are accepted (no newlines or instructions), at most 40 characters.
+    """
+    name = " ".join((raw or "").split())
+    if not name or name.startswith("/") or not _NAME_PATTERN.match(name):
+        return None
+    return name
+
+
 def build_display_name(
     first_name: str | None,
     last_name: str | None = None,
@@ -69,7 +84,7 @@ class TelegramUserService:
 
         # Keep profile data fresh without ever touching is_active.
         changes = {}
-        if display_name and user.display_name != display_name:
+        if display_name and user.name_status != "custom" and user.display_name != display_name:
             changes["display_name"] = display_name
         if language_code and user.language_code != language:
             changes["language_code"] = language
@@ -83,3 +98,28 @@ class TelegramUserService:
 
         await self.session.commit()
         return user
+
+
+    async def mark_name_asked(self, user: User) -> None:
+        """Remember that the name question was shown (it is asked only once)."""
+        if user.name_status == "unasked":
+            await self.session.execute(
+                update(User).where(User.id == user.id).values(name_status="asked")
+            )
+            await self.session.commit()
+            user.name_status = "asked"
+
+    async def set_custom_name(self, user: User, raw: str | None) -> str | None:
+        """Save the name the user chose; None when it is not acceptable."""
+        name = clean_name(raw)
+        if name is None:
+            return None
+        await self.session.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(display_name=name, name_status="custom")
+        )
+        await self.session.commit()
+        user.display_name = name
+        user.name_status = "custom"
+        return name
