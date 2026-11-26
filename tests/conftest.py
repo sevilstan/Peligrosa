@@ -65,3 +65,14 @@ def run_db():
         asyncio.run(main())
 
     return runner
+
+
+@pytest.fixture(autouse=True)
+def no_real_pacing_pauses(monkeypatch):
+    """Reply pacing waits seconds in production; tests must not."""
+    from app.telegram import pacing
+
+    async def instant(seconds):
+        return None
+
+    monkeypatch.setattr(pacing, "_sleep", instant)

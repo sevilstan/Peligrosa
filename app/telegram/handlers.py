@@ -1,3 +1,4 @@
+import contextlib
 import html
 import logging
 import uuid
@@ -79,6 +80,7 @@ from app.telegram.keyboards import (
 )
 from app.telegram.group_drafts import GroupDrafts
 from app.telegram.slides import build_slide, edit_slide, send_slide, shorten
+from app.telegram.pacing import PacingConfig, gap_before_reply, play, split_bubbles
 from app.telegram.texts import all_labels, t
 
 logger = logging.getLogger(__name__)
@@ -865,10 +867,15 @@ async def refund_command(
 # ------------------------------------------------------------- messaging
 
 
-async def _send_as(message: Message, name: str, content: str) -> None:
-    """One bot, several voices: the name opens the message, in every chat, so
-    it is clear who speaks even when chats were switched above. Only the name
-    is HTML (escaped); the character's words stay plain text."""
+async def _send_part(message: Message, name: str | None, content: str) -> None:
+    """One bubble. With a name it opens with it, so it is clear who speaks even
+    when chats were switched above. Only the name is HTML (escaped); the
+    character's words stay plain text."""
+    if name is None:
+        for part in split_text(content):
+            await message.answer(part, parse_mode=None)
+        return
+
     # Telegram counts the visible characters, so the header ("Name: ") takes
     # room from the first part.
     parts = split_text(content, TELEGRAM_MESSAGE_LIMIT - len(name) - 2)
@@ -877,6 +884,22 @@ async def _send_as(message: Message, name: str, content: str) -> None:
     await message.answer(header + html.escape(parts[0], quote=False), parse_mode="HTML")
     for part in parts[1:]:
         await message.answer(part, parse_mode=None)
+
+
+async def _send_as(message: Message, name: str, content: str, *, lead_in: float = 0.0) -> None:
+    """A reply as short bubbles with typing pauses (see pacing.py). Only the
+    first bubble carries the name."""
+    config = PacingConfig.from_settings(settings)
+    bubbles = split_bubbles(content, config)
+
+    async def send(index: int, text: str) -> None:
+        await _send_part(message, name if index == 0 else None, text)
+
+    async def typing() -> None:
+        with contextlib.suppress(TelegramAPIError):
+            await message.bot.send_chat_action(message.chat.id, "typing")
+
+    await play(bubbles, send, typing, config, lead_in=lead_in)
 
 
 async def chat_text(
@@ -941,8 +964,15 @@ async def _group_text(
 ) -> None:
     language = user.language_code
 
+    config = PacingConfig.from_settings(settings)
+    delivered = 0
+
     async def deliver(reply) -> None:
-        await _send_as(message, reply.speaker.name, reply.content)
+        # Later speakers wait a moment so replies do not land all at once.
+        nonlocal delivered
+        lead_in = gap_before_reply(reply.content, config) if delivered else 0.0
+        delivered += 1
+        await _send_as(message, reply.speaker.name, reply.content, lead_in=lead_in)
 
     try:
         # Each reply is sent as soon as it exists; typing stays on meanwhile.
