@@ -45,6 +45,7 @@ class CharacterPromptBuilder:
         character,
         memories: Iterable | None = None,
         summary: str | None = None,
+        user_name: str | None = None,
     ) -> str:
         """Return the full system prompt.
 
@@ -53,16 +54,29 @@ class CharacterPromptBuilder:
         memories:  this character's memories about the current user
                    (objects with category and content).
         summary:   the conversation summary, if any.
+        user_name: the name the user chose for themselves, if any.
         """
         sections = [
             self._identity(character),
             self._personality(character),
             self._rules(character),
+            self._user(user_name),
             self._memory(memories),
             self._summary(summary),
         ]
 
         return "\n\n".join(section for section in sections if section)
+
+    @staticmethod
+    def _user(user_name: str | None) -> str:
+        name = (user_name or "").strip()
+        if not name:
+            return ""
+        return (
+            "THE PERSON YOU ARE TALKING TO\n"
+            f"Their name is {name}. Use it naturally and only now and then, "
+            "the way a real person would, not in every message."
+        )
 
     @staticmethod
     def _clean(value: str | None) -> str:

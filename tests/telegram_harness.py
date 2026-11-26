@@ -86,8 +86,10 @@ def _from(user_id, is_bot, first, lang):
     return {"id": user_id, "is_bot": is_bot, "first_name": first, "language_code": lang}
 
 
-def message_update(text, *, user_id=1001, chat_type="private", is_bot=False, first="Ada", lang="en"):
-    return {
+def message_update(
+    text, *, user_id=1001, chat_type="private", is_bot=False, first="Ada", lang="en", reply_to=None
+):
+    payload = {
         "update_id": 1,
         "message": {
             "message_id": 10,
@@ -97,6 +99,16 @@ def message_update(text, *, user_id=1001, chat_type="private", is_bot=False, fir
             "text": text,
         },
     }
+    if reply_to is not None:
+        # A reply to one of the bot's own messages (what ForceReply produces).
+        payload["message"]["reply_to_message"] = {
+            "message_id": 9,
+            "date": int(time.time()),
+            "chat": {"id": user_id, "type": "private"},
+            "from": {"id": 123456, "is_bot": True, "first_name": "Peligrosa"},
+            "text": reply_to,
+        }
+    return payload
 
 
 def photo_message_update(*, user_id=1001, lang="en"):

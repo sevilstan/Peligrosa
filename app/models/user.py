@@ -39,6 +39,14 @@ class User(Base):
         nullable=True,
     )
 
+    # unasked -> asked -> custom. Only a "custom" name (typed by the user) is
+    # kept; Telegram's own name is refreshed on every update until then.
+    name_status: Mapped[str] = mapped_column(
+        String(10),
+        default="unasked",
+        server_default="unasked",
+    )
+
     language_code: Mapped[str] = mapped_column(
         String(5),
         default="en",

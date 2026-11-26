@@ -75,7 +75,7 @@ class UserDataService:
             # Remember that this user deleted their data: training exports skip
             # them and old exports/backups can be purged from this list.
             await self.session.execute(
-                update(User).where(User.id == user_id).values(data_deleted_at=datetime.now(timezone.utc))
+                update(User).where(User.id == user_id).values(data_deleted_at=datetime.now(timezone.utc), display_name=None, name_status="unasked")
             )
             await self.session.commit()
         except Exception:

@@ -5,12 +5,13 @@ import uuid
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
+from aiogram.types import CallbackQuery, ForceReply, LabeledPrice, Message, PreCheckoutQuery
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.user import User
+from app.services.telegram_user_service import TelegramUserService
 from app.services.user_data_service import UserDataService
 from app.services.character_gallery_service import CharacterGalleryService
 from app.services.character_removal_service import (
@@ -115,7 +116,45 @@ async def start(message: Message, session: AsyncSession, user: User, avatars: Av
     language = user.language_code
     name = f", {html.escape(user.display_name)}" if user.display_name else ""
     await message.answer(t(language, "welcome", name=name), reply_markup=main_menu(language))
+
+    # The name is asked once. The gallery follows the answer; a user who
+    # ignores the question still has the menu buttons.
+    if user.name_status == "unasked":
+        await _ask_name(message, session, user)
+        return
     await _show_gallery(message, session, avatars, language)
+
+
+async def _ask_name(message: Message, session: AsyncSession, user: User) -> None:
+    await TelegramUserService(session).mark_name_asked(user)
+    await message.answer(t(user.language_code, "ask_name"), reply_markup=ForceReply(selective=True))
+
+
+async def name_command(
+    message: Message, command: CommandObject, session: AsyncSession, user: User
+) -> None:
+    """/name shows the question again; /name Ada sets the name directly."""
+    if not command.args:
+        await _ask_name(message, session, user)
+        return
+    await _save_name(message, session, user, command.args)
+
+
+async def name_reply(
+    message: Message, session: AsyncSession, user: User, avatars: AvatarProvider
+) -> None:
+    """The user answered the name question (a reply to the bot's question)."""
+    if await _save_name(message, session, user, message.text):
+        await _show_gallery(message, session, avatars, user.language_code)
+
+
+async def _save_name(message: Message, session: AsyncSession, user: User, raw: str | None) -> bool:
+    name = await TelegramUserService(session).set_custom_name(user, raw)
+    if name is None:
+        await message.answer(t(user.language_code, "name_invalid"))
+        return False
+    await message.answer(t(user.language_code, "name_saved", name=html.escape(name)))
+    return True
 
 
 async def characters(message: Message, session: AsyncSession, user: User, avatars: AvatarProvider) -> None:
@@ -976,6 +1015,7 @@ def build_router() -> Router:
     router.message.register(history_command, Command("history"))
     router.message.register(history_command, F.text.in_(all_labels("menu_history")))
     router.message.register(new_chat_command, Command("new"))
+    router.message.register(name_command, Command("name"))
     router.message.register(group_command, Command("newgroup"))
     router.message.register(delete_command, Command("delete"))
     router.message.register(proactive_command, Command("proactive"))
@@ -988,6 +1028,12 @@ def build_router() -> Router:
     router.message.register(successful_payment, F.successful_payment)
     router.pre_checkout_query.register(pre_checkout)
     router.message.register(grant_command, Command("grant"))
+    router.message.register(
+        name_reply,
+        F.text,
+        F.reply_to_message.from_user.is_bot,
+        F.reply_to_message.text.in_(all_labels("ask_name")),
+    )
     router.message.register(unknown_command, F.text.startswith("/"))
     router.message.register(chat_text, F.text)
     router.message.register(non_text)

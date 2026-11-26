@@ -35,6 +35,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "chat_divider": "━━━━━━━━━━━━\n{icon} <b>{name}</b>\n━━━━━━━━━━━━",
         "chat_resumed": "Welcome back! Continuing your chat with <b>{name}</b>.",
         "chat_new": "Started a new chat with <b>{name}</b>. Just write your message.",
+        "ask_name": "What should I call you? Reply to this message with your name.",
+        "name_saved": "Nice to meet you, <b>{name}</b>! Pick a character to start.",
+        "name_invalid": "Please send just a name (letters, up to 40 characters). Try /name again.",
         "chat_recap": "<i>{name}, last time:</i>\n{text}",
         "btn_new_chat": "➕ New chat with {name}",
         "chats_title": "<b>Your chats</b> ({page}/{total})\nTap one to continue it.",
@@ -146,6 +149,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "cmd_characters": "Browse characters",
         "cmd_chats": "My chats",
         "cmd_new": "New chat with the current character",
+        "cmd_name": "Change your name",
     },
     "tr": {
         "welcome": (
@@ -175,6 +179,9 @@ TEXTS: dict[str, dict[str, str]] = {
         "chat_divider": "━━━━━━━━━━━━\n{icon} <b>{name}</b>\n━━━━━━━━━━━━",
         "chat_resumed": "Tekrar hoş geldin! <b>{name}</b> ile sohbetine devam ediyorsun.",
         "chat_new": "<b>{name}</b> ile yeni bir sohbet başladı. Mesajını yazman yeterli.",
+        "ask_name": "Sana nasıl hitap edeyim? Bu mesajı yanıtlayarak adını yaz.",
+        "name_saved": "Memnun oldum, <b>{name}</b>! Başlamak için bir karakter seç.",
+        "name_invalid": "Lütfen sadece bir isim yaz (harf, en fazla 40 karakter). Tekrar denemek için /name.",
         "chat_recap": "<i>{name}, son olarak:</i>\n{text}",
         "btn_new_chat": "➕ {name} ile yeni sohbet",
         "chats_title": "<b>Sohbetlerin</b> ({page}/{total})\nDevam etmek için birine dokun.",
@@ -284,6 +291,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "cmd_characters": "Karakterlere göz at",
         "cmd_chats": "Sohbetlerim",
         "cmd_new": "Mevcut karakterle yeni sohbet",
+        "cmd_name": "Adını değiştir",
     },
 }
 

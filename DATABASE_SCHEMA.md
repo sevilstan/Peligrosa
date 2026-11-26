@@ -25,6 +25,7 @@
 | `email` | `VARCHAR(255)` | True | `None` |
 | `password_hash` | `VARCHAR(255)` | True | `None` |
 | `display_name` | `VARCHAR(100)` | True | `None` |
+| `name_status` | `VARCHAR(10)` | False | `unasked` (unasked / asked / custom) |
 | `language_code` | `VARCHAR(5)` | False | `None` |
 | `is_active` | `BOOLEAN` | False | `None` |
 | `created_at` | `TIMESTAMP` | False | `now()` |

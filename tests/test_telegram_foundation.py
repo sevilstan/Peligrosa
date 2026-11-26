@@ -302,7 +302,11 @@ def test_start_registers_user_shows_menu_and_first_slide(run_db, tmp_path):
 
         await bot.send(message_update("/start", user_id=555, first="Ada"))
 
-        welcome, slide = bot.session.named("SendMessage")
+        # A new user is asked for a name first; the first slide follows the answer.
+        welcome, question = bot.session.named("SendMessage")
+        assert question["text"] == t("en", "ask_name")
+        await bot.send(message_update("Ada", user_id=555, first="Ada", reply_to=question["text"]))
+        slide = bot.session.named("SendMessage")[-1]
         assert "Ada" in welcome["text"]
         menu = welcome["reply_markup"]["keyboard"][0]
         assert [b["text"] for b in menu] == [
