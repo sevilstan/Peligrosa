@@ -90,6 +90,7 @@
 | `sender_character_id` | `UUID` | True | `None` |
 | `content` | `TEXT` | False | `None` |
 | `message_type` | `VARCHAR(20)` | False | `None` |
+| `image_key` | `VARCHAR(80)` | True | key of a stored picture when `message_type = 'image'` (migration `d18e3f9a7b87`) |
 | `created_at` | `TIMESTAMP` | False | `now()` |
 
 **Primary Key:** `['id']`
@@ -300,3 +301,18 @@ Holds amounts and reasons only, never message text.
 | `credits_granted` / `days_granted` | `INTEGER` | False | what the payment gave |
 | `status` | `VARCHAR(20)` | False | `paid`, `refunded`, `needs_review` |
 | `created_at` / `refunded_at` | `TIMESTAMPTZ` | False / True | |
+
+### `generated_images` (migration `d18e3f9a7b87`)
+
+A shared picture cache: one row per finished picture of a character in a scene.
+Holds no user data (only the character and closed-vocabulary scene tags), so
+`/deletedata` does not touch it.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `UUID` | False | primary key |
+| `character_id` | `UUID` | False | FK `characters.id`, `ON DELETE CASCADE`, indexed |
+| `scene_key` | `VARCHAR(200)` | False | `setting\|pose\|outfit`, e.g. `bedroom\|lying down\|red dress` |
+| `image_key` | `VARCHAR(80)` | False | file name in the image storage folder |
+| `use_count` | `INTEGER` | False | how often it was reused instead of making a new one |
+| `created_at` | `TIMESTAMPTZ` | False | `now()` |

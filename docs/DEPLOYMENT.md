@@ -141,6 +141,37 @@ So the free tier supports **a few active group users at a time**. Before a
 public launch: a paid tier (raise the limits), or a cheaper model for the small
 helper calls. Limits are per process: run ONE bot process per API key.
 
+### Pictures in chats (Xavira)
+
+How it works: the user presses "Request photo" (or `/photo`), or asks for a
+picture in the chat. The bot offers it ("costs N credits, want one?"); on
+"yes" the credits are charged, the picture is made and sent. On any failure
+the credits are returned. Pictures are for personal chats only, and
+subscribers pay credits for them too (messages are what a subscription covers).
+
+Setup:
+1. In the Xavira dashboard make one character per person (this costs 1-2
+   Xavira credits each) and copy its id.
+2. Put it in that character's YAML as `image_character_id: <id>`. The YAML
+   must also state `profile: age:` (18 or more); without both, no picture is
+   made for that character and the bot says so.
+3. In `.env`: `IMAGES_ENABLED=true` and `XAVIRA_API_KEY=...`, then restart.
+   `IMAGES_ENABLED=true` without a key stops the bot at startup on purpose.
+4. With the provided `docker-compose.yml` the pictures live in the `images`
+   volume and survive redeploys. Back that volume up too if you care about
+   old pictures (the database only stores their file names).
+
+What goes to Xavira: only a prompt built from a few fixed scene words (setting,
+pose, outfit) and the character id. Nothing a user typed is sent. The chat AI
+writes those scene words from the recent chat.
+
+Saving Xavira credits: finished pictures are cached per character and scene.
+After `IMAGE_CACHE_MIN_VARIANTS` different pictures exist for a scene, other
+users asking for the same scene get one of those instead of a new one, and
+nobody gets the same picture twice. The user still pays the same credits.
+Errors that need you (key rejected, out of credit, unknown character id, low
+balance) are logged as ERROR and arrive as operator alerts.
+
 ## 5. Database connections
 
 A reply keeps its database connection while the AI answers, so

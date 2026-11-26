@@ -11,6 +11,7 @@ import uuid
 
 from app.services.chat_session_service import ChatListPage, HistoryPage
 from app.services.character_gallery_service import GalleryCharacter, GalleryPage
+from app.core.config import settings
 from app.telegram.texts import t
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ GROUP_SELECT_PREFIX = "gsel:"
 GROUP_PAGE_PREFIX = "gpage:"
 GROUP_DONE = "gdone"
 GROUP_CANCEL = "gcancel"
+PHOTO_YES = "imgy"
+PHOTO_NO = "imgn"
 HISTORY_OPEN_PREFIX = "hopen:"  # from a chat message: send history as a new message
 HISTORY_PAGE_PREFIX = "hist:"  # from the history itself: edit it in place
 NOOP = "noop"
@@ -52,7 +55,8 @@ def main_menu(language: str | None) -> ReplyKeyboardMarkup:
                 KeyboardButton(text=t(language, "menu_characters")),
                 KeyboardButton(text=t(language, "menu_chats")),
                 KeyboardButton(text=t(language, "menu_history")),
-            ]
+            ],
+            *([[KeyboardButton(text=t(language, "menu_photo"))]] if settings.IMAGES_ENABLED else []),
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -289,5 +293,16 @@ def wipe_keyboard(language: str | None) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=t(language, "btn_wipe_confirm"), callback_data=WIPE_CONFIRM)],
             [InlineKeyboardButton(text=t(language, "btn_cancel"), callback_data=WIPE_CANCEL)],
+        ]
+    )
+
+
+def photo_offer_keyboard(language: str | None) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=t(language, "btn_img_yes"), callback_data=PHOTO_YES),
+                InlineKeyboardButton(text=t(language, "btn_img_no"), callback_data=PHOTO_NO),
+            ]
         ]
     )

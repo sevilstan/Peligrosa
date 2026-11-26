@@ -13,7 +13,23 @@ class ImageGenerationRefused(ImageGenerationError):
     """
 
 
+def image_extension(data: bytes) -> str | None:
+    """png/jpg/webp from the file's first bytes (never trust a provider)."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
 class ImageProvider(ABC):
     @abstractmethod
-    async def generate_image(self, prompt: str) -> bytes:
-        """Return the image as PNG/JPEG bytes."""
+    async def generate_image(self, prompt: str, character_ref: str | None = None) -> bytes:
+        """Return the image as PNG/JPEG/WEBP bytes.
+
+        character_ref is the provider's own id for the person to draw (the
+        face and body live at the provider); the prompt only describes the
+        scene.
+        """

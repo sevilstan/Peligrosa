@@ -169,3 +169,31 @@ def test_the_deleted_mark_alone_keeps_a_user_out_of_the_export(run_db, tmp_path)
         assert await export(maker) == []
 
     run_db(scenario)
+
+
+def test_pictures_are_not_part_of_the_training_export(run_db, tmp_path):
+    async def scenario(maker):
+        await add_characters(maker, PEOPLE)
+        bot = Harness(maker, tmp_path)
+        await talk(bot, 1001, "Ada", "hello")
+        async with maker() as s:
+            conversation = (await s.execute(select(Conversation))).scalars().first()
+            character_id = (await s.execute(select(Message.sender_character_id).where(Message.sender_type == "character"))).scalars().first()
+            s.add(
+                Message(
+                    conversation_id=conversation.id,
+                    sender_type="character",
+                    sender_character_id=character_id,
+                    content="*sends you a photo*",
+                    message_type="image",
+                    image_key="abc.png",
+                )
+            )
+            await s.commit()
+
+        records = await export(maker)
+
+        contents = [m["content"] for m in records[0]["messages"]]
+        assert "*sends you a photo*" not in contents and len(contents) == 2
+
+    run_db(scenario)

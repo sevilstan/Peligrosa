@@ -329,6 +329,10 @@ class ConversationService:
 
         return messages_result.scalars().all()
 
+    async def get_direct_conversation(self, conversation_id, user_id):
+        """The user's own direct chat and its character, or ValueError."""
+        return await self._load_direct_conversation(conversation_id, user_id)
+
     async def _load_direct_conversation(self, conversation_id, user_id):
         result = await self.session.execute(
             select(Conversation)
