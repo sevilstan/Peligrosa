@@ -36,6 +36,11 @@ class Settings(BaseSettings):
 
     # Characters writing first (initiative). Off until the operator enables it,
     # and even then only for users who opted in with /proactive.
+    # Replies arrive as a few short bubbles with typing pauses (one AI call).
+    PACING_ENABLED: bool = True
+    PACING_MAX_BUBBLES: int = 3
+    PACING_MAX_TOTAL_SECONDS: float = 5.0
+
     INITIATIVE_ENABLED: bool = False
     INITIATIVE_CHECK_SECONDS: int = 900
     INITIATIVE_MIN_IDLE_HOURS: float = 6.0  # silence before a character may write
