@@ -98,6 +98,16 @@ removes the data from training data and backups). To keep that promise:
 - A model that was already trained on someone's chats cannot be "untrained":
   decide the policy for that with a legal adviser before the first training run.
 
+### Operator commands
+
+Only Telegram ids in `ADMIN_TELEGRAM_IDS` can use them; everyone else just
+gets "unknown command".
+- `/stats`: last-24-hour users, messages, credits spent, Stars earned and
+  pictures, plus all-time payments and how many pictures the cache saved.
+  Counts only, no names or message text.
+- `/grant <telegram_id> <credits>`: give credits.
+- `/refund <charge id>`: return a Stars payment (see Selling with Telegram Stars).
+
 ## Monitoring basics
 
 - `GET /health` answers 200 when the bot's database works, 503 otherwise;
