@@ -68,25 +68,33 @@ Nothing is unlimited: a subscriber has a daily message cap.
   `app/telegram/texts.py` (`terms_text`) before going live. You are responsible
   for disputes. Test payments in Telegram's test environment first.
 
-## Privacy: /deletedata
+## Privacy: what users can delete
 
-A user can delete all their data with `/deletedata` (two steps: warning, then a
-confirm button). It removes every chat and message, the characters' memories of
-the user, the user's own memory records, and the relationship/mood data. It
-keeps the account row (Telegram id, credit balance, subscription end) and the
-credit/payment records: payment records may have to be kept by law, and
-keeping the row stops a deleted account from taking a new free trial. The user
-is told this before confirming. Backups taken earlier still contain the old
-data until they expire: set a backup retention period and say so in your
-privacy policy. Data export is not implemented yet.
+Users do **not** have a "delete all my data" or "download my data" command.
+They can delete a chat with a character (`/delete`): that removes the chat, its
+messages and what that character remembers about them, and nothing else.
+Credits, payments, the credit history, the image ledger and the account row
+(Telegram id, credit balance, subscription end) are accounting records and are
+out of reach of that: payment records may have to be kept by law, and keeping
+the row stops a deleted account from taking a new free trial.
+
+Other requests about a user's data (erasure, a copy) go through support
+(`SUPPORT_CONTACT`, `/support`) and are handled by the operator. The operator
+tool for erasure is `UserDataService.delete_all` (every chat and message, the
+characters' memories of the user, the user's own memory records, relationship
+and mood data; it keeps the account row and the accounting records, and logs
+`User data deleted: user_id=...`). A full data export is planned as an
+admin-only feature of a future admin panel. Backups taken earlier still contain
+old data until they expire: set a backup retention period and say so in your
+privacy policy. Have the terms (`terms_text`) reviewed before going live.
 
 ### Training data and backups
 
-Chats may be used to train models (the terms say so, and say that deleting
-removes the data from training data and backups). To keep that promise:
+Chats may be used to train models (the terms say so). A deleted chat is gone
+from the database and so from new exports; to keep that true:
 
 - Build datasets only with `python -m scripts.export_training_data --out
-  file.jsonl`: it skips users who used `/deletedata` (and deactivated users)
+  file.jsonl`: it skips users whose data an operator wiped (and deactivated users)
   and replaces user ids with pseudonyms (needs `TRAINING_EXPORT_SALT`). Chat
   text can still contain personal details: protect exports like personal data.
 - Before each new training run, run `--deleted-pseudonyms` and remove those
@@ -186,7 +194,7 @@ balance) are logged as ERROR and arrive as operator alerts.
 My pictures: `/gallery` (or the "My pictures" menu button) shows every picture
 the user received as a slider (‹ n/total ›, newest first, up to 200, wraps
 around). It reads the picture messages of the user's own chats, so deleting a
-chat or using `/deletedata` also removes those pictures from the gallery. If
+chat also removes those pictures from the gallery. If
 a file is missing from the `images` volume, that slide is skipped.
 
 ## 5. Database connections
@@ -211,7 +219,7 @@ Files are readable by their owner only: they contain users' chats.
 - **Copy backups off the server** (another machine or object storage such as
   R2/B2, e.g. with `rclone`); a backup on the same disk dies with the disk.
 - **Restore** into an EMPTY database, then re-apply deletions made after the
-  backup was taken (users who used `/deletedata` must not come back):
+  backup was taken (users whose data was wiped must not come back):
 
   ```bash
   gunzip -c /srv/backups/peligrosa-<time>.sql.gz | docker compose exec -T db psql -U peligrosa peligrosa

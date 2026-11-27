@@ -36,7 +36,6 @@ _COMMANDS = (
     ("newgroup", "cmd_newgroup"),
     ("delete", "cmd_delete"),
     ("proactive", "cmd_proactive"),
-    ("deletedata", "cmd_deletedata"),
     ("credits", "cmd_credits"),
     ("buy", "cmd_buy"),
     ("terms", "cmd_terms"),

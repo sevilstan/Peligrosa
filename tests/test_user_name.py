@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from app.models import Character, User
+from app.services.user_data_service import UserDataService
 from app.services.character_prompt_builder import CharacterPromptBuilder
 from app.services.telegram_user_service import TelegramUserService, clean_name
 from app.telegram.texts import t
@@ -136,14 +137,14 @@ def test_the_character_knows_only_a_name_the_user_chose(run_db, tmp_path):
     run_db(scenario)
 
 
-def test_deleting_my_data_forgets_the_name(run_db, tmp_path):
+def test_wiping_a_users_data_forgets_the_name(run_db, tmp_path):
     async def scenario(maker):
         await add_characters(maker, PEOPLE)
         bot = Harness(maker, tmp_path)
         await bot.send(message_update("/name Tolga"))
 
-        await bot.send(message_update("/deletedata"))
-        await bot.send(callback_update("wipeok"))
+        async with maker() as s:  # an operator wipes the user's data
+            await UserDataService(s).delete_all((await load_user(maker)).id)
 
         user = await load_user(maker)
         assert user.name_status == "unasked"
