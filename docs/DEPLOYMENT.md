@@ -184,6 +184,12 @@ These pictures are never cached (each one is a new Xavira call, hence the higher
 price) and nothing is written to the logs about the text. The character must
 still have an image id and an adult `profile: age:`. They show up in the gallery.
 
+Delivery: a picture is added to the chat history (and the gallery) only after
+Telegram has delivered it. If delivery fails, nothing is saved, the credits are
+refunded once and a cached picture is not counted as used. If the photo was
+delivered but saving it fails, the user keeps it, nothing is refunded and an
+ERROR is logged (operator alert).
+
 My pictures: `/gallery` (or the "My pictures" menu button) shows every picture
 the user received as a slider (‹ n/total ›, newest first, up to 200, wraps
 around). It reads the picture messages of the user's own chats, so deleting a

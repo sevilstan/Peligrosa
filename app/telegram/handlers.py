@@ -1279,9 +1279,10 @@ async def photo_yes(
         await message.edit_text(t(language, "img_working", name=html.escape(name)), reply_markup=None)
 
     failure_key = "img_failed"
+    service = ImageService(session, images, provider)
     try:
         async with typing_indicator(bot, message.chat.id, "upload_photo"):
-            photo = await ImageService(session, images, provider).generate(
+            photo = await service.generate(
                 offer.conversation_id,
                 user.id,
                 offer.request_text,
@@ -1296,8 +1297,16 @@ async def photo_yes(
     else:
         with contextlib.suppress(TelegramAPIError):
             await message.delete()
+        # Delivered: now (and only now) the picture joins the chat history.
+        # The user has the photo, so a failure here is logged, never refunded.
+        try:
+            await service.confirm_delivery(photo)
+        except Exception as exc:
+            logger.error("A delivered picture could not be saved to the chat: %s", type(exc).__name__)
+            await session.rollback()
         return
 
+    # Reached only when nothing was delivered: the one and only refund.
     await _credits(session).refund(receipt)
     with contextlib.suppress(TelegramAPIError):
         await message.edit_text(t(language, failure_key, name=html.escape(name)))
