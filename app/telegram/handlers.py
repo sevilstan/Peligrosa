@@ -41,6 +41,7 @@ from app.services.credit_service import (
     CreditService,
     DailyCapReached,
     InsufficientCredits,
+    Receipt,
 )
 from app.services.payment_service import CURRENCY, PaymentService, build_catalog, payload_for
 from app.services.group_conversation_service import FOLLOWUP_CHANCE, GroupConversationService
@@ -697,10 +698,17 @@ async def grant_command(
 async def _charge_or_explain(
     message_or_callback, session, user, cost, reason, conversation_id=None, included_in_subscription=True
 ):
-    """Charge, or tell the user why not. Returns the receipt, or None."""
+    """Charge, or tell the user why not. Returns the receipt, or None.
+
+    Operators (ADMIN_TELEGRAM_IDS) are never charged: a free receipt, nothing
+    recorded, so they can test everything without buying credits.
+    """
     language = user.language_code
     config = CreditConfig.from_settings(settings)
     is_callback = isinstance(message_or_callback, CallbackQuery)
+
+    if user.telegram_id in _admin_ids():
+        return Receipt(user.id, 0, reason, conversation_id)
 
     try:
         return await CreditService(session, config).charge(

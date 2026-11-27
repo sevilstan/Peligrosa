@@ -328,3 +328,19 @@ def test_a_subscriber_still_pays_credits_for_a_picture(run_db, tmp_path, credits
         assert await user_credits(maker) == before - 5
 
     run_db(scenario)
+
+
+def test_an_operator_gets_pictures_without_credits(run_db, tmp_path, credits_on, monkeypatch):
+    monkeypatch.setattr(settings, "ADMIN_TELEGRAM_IDS", "1001")
+
+    async def scenario(maker):
+        bot, feat = await started(maker, tmp_path)
+        await bot.send(message_update("/photo"))
+        await set_credits(maker, 0)
+
+        await yes(bot)
+
+        assert len(feat.provider.calls) == 1 and len(bot.session.named("SendPhoto")) == 1
+        assert await user_credits(maker) == 0
+
+    run_db(scenario)
