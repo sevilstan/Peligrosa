@@ -203,6 +203,12 @@ cost filled in; `/stats` then shows calls, failures, cache hits, recorded cost
 and the characters with the most calls. The ledger is kept after `/deletedata`
 (accounting, like credit history).
 
+Delivery: a picture is added to the chat history (and the gallery) only after
+Telegram has delivered it. If delivery fails, nothing is saved, the credits are
+refunded once and a cached picture is not counted as used. If the photo was
+delivered but saving it fails, the user keeps it, nothing is refunded and an
+ERROR is logged (operator alert).
+
 My pictures: `/gallery` (or the "My pictures" menu button) shows every picture
 the user received as a slider (‹ n/total ›, newest first, up to 200, wraps
 around). It reads the picture messages of the user's own chats, so deleting a

@@ -5,7 +5,10 @@ drawable -> the chat AI turns the recent chat into a few scene TAGS (untrusted
 text; only known words survive, see image_scene) -> look in the cache for a
 picture of this character with the same tags that this user has not received
 yet -> otherwise ask the image provider (costs real money), store the picture
-and remember it for the next user -> save a character message with the key.
+and remember it for the next user. The character message that puts the picture
+into the chat history (and the gallery) is only saved by confirm_delivery(),
+after Telegram has really delivered it; a cached picture also only counts as
+reused then.
 
 Reuse keeps the picture variety honest: a scene gets IMAGE_CACHE_MIN_VARIANTS
 different pictures before any is reused, and a user never gets the same
@@ -16,7 +19,7 @@ import logging
 import random
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import selectinload
 
 from app.models.conversation import Conversation
@@ -54,6 +57,8 @@ class PhotoResult:
     data: bytes
     character_name: str
     from_cache: bool
+    conversation_id: object = None
+    character_id: object = None
 
 
 def can_draw(feature: ImageFeature | None, slug: str) -> bool:
@@ -140,18 +145,39 @@ class ImageService:
                 conversation, character, definition, user_id, request_text
             )
 
+        # Keeps the new cache entry (and forgotten ones); the chat message waits
+        # for confirm_delivery().
+        await self.session.commit()
+        return PhotoResult(
+            key=key,
+            data=data,
+            character_name=definition.name,
+            from_cache=from_cache,
+            conversation_id=conversation.id,
+            character_id=character.id,
+        )
+
+    async def confirm_delivery(self, photo: PhotoResult) -> None:
+        """Call once Telegram has delivered the picture: it now belongs to the
+        chat history (and so to the user's gallery) and, if it came from the
+        cache, counts as reused."""
         self.session.add(
             Message(
-                conversation_id=conversation.id,
+                conversation_id=photo.conversation_id,
                 sender_type="character",
-                sender_character_id=character.id,
+                sender_character_id=photo.character_id,
                 content=HISTORY_TEXT,
                 message_type="image",
-                image_key=key,
+                image_key=photo.key,
             )
         )
+        if photo.from_cache:
+            await self.session.execute(
+                update(ImageCacheEntry)
+                .where(ImageCacheEntry.character_id == photo.character_id, ImageCacheEntry.image_key == photo.key)
+                .values(use_count=func.coalesce(ImageCacheEntry.use_count, 0) + 1)
+            )
         await self.session.commit()
-        return PhotoResult(key=key, data=data, character_name=definition.name, from_cache=from_cache)
 
     async def _scene_picture(self, conversation, character, definition, user_id, request_text):
         tags = await self._tags(conversation.id, request_text)
@@ -240,7 +266,6 @@ class ImageService:
                 logger.warning("A cached picture file is missing; it is forgotten.")
                 await self.session.delete(entry)
                 continue
-            entry.use_count = (entry.use_count or 0) + 1
             return entry.image_key, data
         return None
 
