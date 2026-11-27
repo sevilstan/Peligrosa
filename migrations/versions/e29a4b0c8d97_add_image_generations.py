@@ -1,4 +1,4 @@
-"""add image_generations (image cost ledger)
+"""add image_generations (image generation and delivery ledger)
 
 Revision ID: e29a4b0c8d97
 Revises: d18e3f9a7b87
@@ -28,9 +28,10 @@ def upgrade() -> None:
         sa.Column('kind', sa.String(length=10), nullable=False),
         sa.Column('source', sa.String(length=10), nullable=False),
         sa.Column('status', sa.String(length=10), nullable=False),
+        sa.Column('delivery', sa.String(length=10), nullable=True),
         sa.Column('provider', sa.String(length=30), nullable=False),
         sa.Column('model', sa.String(length=60), nullable=True),
-        sa.Column('cost', sa.Float(), nullable=True),
+        sa.Column('provider_credits', sa.Float(), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='SET NULL'),
         sa.ForeignKeyConstraint(['character_id'], ['characters.id'], ondelete='SET NULL'),

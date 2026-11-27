@@ -195,13 +195,19 @@ These pictures are never cached (each one is a new Xavira call, hence the higher
 price) and nothing is written to the logs about the text. The character must
 still have an image id and an adult `profile: age:`. They show up in the gallery.
 
-Cost ledger: every picture attempt is written to `image_generations` (user,
-character, photo or art, image-service call or cache hit, ok/refused/failed,
-provider, model, cost). No prompt or chat text is stored. Set
-`XAVIRA_COST_PER_IMAGE` to what one image costs you in Xavira credits to have
-cost filled in; `/stats` then shows calls, failures, cache hits, recorded cost
-and the characters with the most calls. The ledger is kept after `/deletedata`
-(accounting, like credit history).
+Image ledger: every picture attempt is one row in `image_generations`
+(updated, never duplicated). Generation and delivery are separate facts:
+generation is ok / refused / failed (and whether it was a real Xavira call or a
+cached picture); delivery is pending / delivered / failed and only exists when
+a picture was made. A picture that was paid for at Xavira but not delivered by
+Telegram keeps its recorded Xavira credits, and a cache reuse only counts after
+delivery. Amounts are **Xavira credits, the provider's own unit, not money**:
+set `XAVIRA_CREDITS_PER_IMAGE` to what one successful picture uses (0 = not
+recorded; refused and failed calls are assumed to use none, so check this
+against Xavira's billing). `/stats` shows calls, refused/failed, made but not
+delivered, delivered cache hits, Xavira credits used and the characters with
+the most calls. No prompt or chat text is stored. The ledger is accounting data
+and is not removed by users.
 
 Delivery: a picture is added to the chat history (and the gallery) only after
 Telegram has delivered it. If delivery fails, nothing is saved, the credits are

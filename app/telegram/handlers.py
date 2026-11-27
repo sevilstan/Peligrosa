@@ -1302,6 +1302,7 @@ async def photo_yes(
 
     failure_key = "img_failed"
     service = ImageService(session, images, provider)
+    photo = None
     try:
         async with typing_indicator(bot, message.chat.id, "upload_photo"):
             photo = await service.generate(
@@ -1329,6 +1330,12 @@ async def photo_yes(
         return
 
     # Reached only when nothing was delivered: the one and only refund.
+    if photo is not None:  # made (and paid for at the provider) but not delivered
+        try:
+            await service.mark_delivery_failed(photo)
+        except Exception as exc:
+            logger.warning("Could not record the failed delivery: %s", type(exc).__name__)
+            await session.rollback()
     await _credits(session).refund(receipt)
     with contextlib.suppress(TelegramAPIError):
         await message.edit_text(t(language, failure_key, name=html.escape(name)))

@@ -17,6 +17,7 @@ picture twice.
 
 import logging
 import random
+import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import func, select, update
@@ -59,6 +60,7 @@ class PhotoResult:
     from_cache: bool
     conversation_id: object = None
     character_id: object = None
+    ledger_id: object = None  # this attempt's row in image_generations
 
 
 def can_draw(feature: ImageFeature | None, slug: str) -> bool:
@@ -137,11 +139,11 @@ class ImageService:
             raise ValueError("Empty picture description.")
 
         if art is not None:
-            data = await self._call_provider(art, definition, character, user_id, "art")
+            data, ledger_id = await self._call_provider(art, definition, character, user_id, "art")
             key = await self.feature.storage.save(data, image_extension(data) or "png")
             from_cache = False
         else:
-            key, data, from_cache = await self._scene_picture(
+            key, data, from_cache, ledger_id = await self._scene_picture(
                 conversation, character, definition, user_id, request_text
             )
 
@@ -155,12 +157,16 @@ class ImageService:
             from_cache=from_cache,
             conversation_id=conversation.id,
             character_id=character.id,
+            ledger_id=ledger_id,
         )
 
     async def confirm_delivery(self, photo: PhotoResult) -> None:
         """Call once Telegram has delivered the picture: it now belongs to the
         chat history (and so to the user's gallery) and, if it came from the
-        cache, counts as reused."""
+        cache, counts as reused. Calling it again for the same picture does
+        nothing."""
+        if not await self._set_delivery(photo, "delivered"):
+            return
         self.session.add(
             Message(
                 conversation_id=photo.conversation_id,
@@ -179,6 +185,25 @@ class ImageService:
             )
         await self.session.commit()
 
+    async def mark_delivery_failed(self, photo: PhotoResult) -> None:
+        """The picture was made (and paid for) but Telegram did not deliver it.
+        Only the delivery column changes: the provider credits stay recorded."""
+        await self._set_delivery(photo, "failed")
+        await self.session.commit()
+
+    async def _set_delivery(self, photo: PhotoResult, status: str) -> bool:
+        """Update this attempt's one ledger row. Only a pending row changes, so
+        calling this twice neither duplicates nor overwrites anything. Returns
+        False when the row was already settled."""
+        if photo.ledger_id is None:
+            return True
+        result = await self.session.execute(
+            update(ImageGeneration)
+            .where(ImageGeneration.id == photo.ledger_id, ImageGeneration.delivery == "pending")
+            .values(delivery=status)
+        )
+        return result.rowcount > 0
+
     async def _scene_picture(self, conversation, character, definition, user_id, request_text):
         tags = await self._tags(conversation.id, request_text)
 
@@ -186,17 +211,17 @@ class ImageService:
         if reused is not None:
             key, data = reused
             from_cache = True
-            await self._log(user_id, character, "photo", "cache", "ok")
+            ledger_id = await self._log(user_id, character, "photo", "cache", "ok")
         else:
-            data = await self._call_provider(tags.prompt(), definition, character, user_id, "photo")
+            data, ledger_id = await self._call_provider(tags.prompt(), definition, character, user_id, "photo")
             key = await self.feature.storage.save(data, image_extension(data) or "png")
             self.session.add(ImageCacheEntry(character_id=character.id, scene_key=tags.key, image_key=key))
             from_cache = False
-        return key, data, from_cache
+        return key, data, from_cache, ledger_id
 
-    async def _call_provider(self, prompt, definition, character, user_id, kind) -> bytes:
-        """The one place that spends image-service money; every attempt is
-        written to the cost ledger, including refusals and failures."""
+    async def _call_provider(self, prompt, definition, character, user_id, kind):
+        """The one place that uses image-service credits; every attempt gets one
+        ledger row, including refusals and failures. Returns (bytes, ledger id)."""
         try:
             data = await self.feature.provider.generate_image(
                 prompt, character_ref=definition.image_character_id
@@ -207,25 +232,27 @@ class ImageService:
         except Exception:
             await self._log(user_id, character, kind, "provider", "failed")
             raise
-        await self._log(user_id, character, kind, "provider", "ok")
-        return data
+        return data, await self._log(user_id, character, kind, "provider", "ok")
 
-    async def _log(self, user_id, character, kind, source, status) -> None:
+    async def _log(self, user_id, character, kind, source, status) -> uuid.UUID:
+        """Write this attempt's ledger row; the credits are recorded right away,
+        whatever happens to the delivery later."""
         provider = self.feature.provider
-        unit = settings.XAVIRA_COST_PER_IMAGE
-        self.session.add(
-            ImageGeneration(
-                user_id=user_id,
-                character_id=character.id,
-                kind=kind,
-                source=source,
-                status=status,
-                provider=getattr(provider, "name", "unknown"),
-                model=getattr(provider, "model", None),
-                cost=unit if source == "provider" and unit > 0 else None,
-            )
+        credits = settings.XAVIRA_CREDITS_PER_IMAGE
+        row = ImageGeneration(
+            user_id=user_id,
+            character_id=character.id,
+            kind=kind,
+            source=source,
+            status=status,
+            delivery="pending" if status == "ok" else None,
+            provider=getattr(provider, "name", "unknown"),
+            model=getattr(provider, "model", None),
+            provider_credits=credits if source == "provider" and status == "ok" and credits > 0 else None,
         )
+        self.session.add(row)
         await self.session.commit()
+        return row.id
 
     async def _from_cache(self, character_id, tags: SceneTags, user_id):
         """(key, bytes) of a stored picture this user has not got yet, or None."""

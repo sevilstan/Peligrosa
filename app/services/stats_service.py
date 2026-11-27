@@ -31,12 +31,14 @@ class Stats:
     pictures_24h: int
     cached_images: int  # distinct pictures stored in the cache
     cache_reuse_count: int  # how often stored pictures were handed out again
-    provider_calls: int  # image-service calls, from the cost ledger (all attempts)
+    provider_calls: int  # image-service calls, from the ledger (all attempts)
     provider_calls_24h: int
-    provider_failed: int  # refused or failed calls (credits were refunded)
-    cache_hits: int  # pictures served from the cache, from the ledger
-    provider_cost: float  # sum of recorded cost (0 when XAVIRA_COST_PER_IMAGE is unset)
-    top_characters: tuple[tuple[str, int, float], ...] = ()  # (name, calls, cost)
+    provider_failed: int  # refused or failed calls (nothing to deliver)
+    provider_undelivered: int  # picture made and paid for at the provider, Telegram did not deliver it
+    provider_delivered: int  # real calls whose picture reached the user
+    cache_hits: int  # cached pictures that reached the user (counted on delivery only)
+    provider_credits: float  # Xavira credits used (the provider's unit, not money); 0 = not recorded
+    top_characters: tuple[tuple[str, int, float], ...] = ()  # (name, calls, Xavira credits)
 
 
 class StatsService:
@@ -92,11 +94,24 @@ class StatsService:
             provider_failed=await one(
                 select(func.count()).select_from(ImageGeneration).where(called, ImageGeneration.status != "ok")
             ),
-            cache_hits=await one(
-                select(func.count()).select_from(ImageGeneration).where(ImageGeneration.source == "cache")
+            provider_undelivered=await one(
+                select(func.count()).select_from(ImageGeneration).where(called, ImageGeneration.delivery == "failed")
             ),
-            provider_cost=float(
-                (await self.session.execute(select(func.coalesce(func.sum(ImageGeneration.cost), 0)))).scalar() or 0
+            provider_delivered=await one(
+                select(func.count()).select_from(ImageGeneration).where(called, ImageGeneration.delivery == "delivered")
+            ),
+            cache_hits=await one(
+                select(func.count())
+                .select_from(ImageGeneration)
+                .where(ImageGeneration.source == "cache", ImageGeneration.delivery == "delivered")
+            ),
+            provider_credits=float(
+                (
+                    await self.session.execute(
+                        select(func.coalesce(func.sum(ImageGeneration.provider_credits), 0))
+                    )
+                ).scalar()
+                or 0
             ),
             top_characters=await self._top_characters(called),
         )
@@ -107,7 +122,7 @@ class StatsService:
                 select(
                     Character.name,
                     func.count(),
-                    func.coalesce(func.sum(ImageGeneration.cost), 0),
+                    func.coalesce(func.sum(ImageGeneration.provider_credits), 0),
                 )
                 .join(Character, Character.id == ImageGeneration.character_id)
                 .where(called)
@@ -120,7 +135,7 @@ class StatsService:
 
 
 def format_stats(stats: Stats) -> str:
-    served = stats.provider_calls + stats.cache_hits
+    served = stats.provider_delivered + stats.cache_hits  # pictures that reached users
     saved = f"{round(100 * stats.cache_hits / served)}%" if served else "-"
     lines = [
         "Last 24 hours",
@@ -133,14 +148,16 @@ def format_stats(stats: Stats) -> str:
         "",
         "All time",
         f"Payments: {stats.paid_count} paid ({stats.paid_stars} Stars), {stats.refunded_count} refunded",
-        f"Image-service calls: {stats.provider_calls} ({stats.provider_failed} refused/failed), "
-        f"cache hits: {stats.cache_hits} ({saved} served from cache)",
+        f"Image-service calls: {stats.provider_calls} ({stats.provider_failed} refused/failed, "
+        f"{stats.provider_undelivered} made but not delivered)",
+        f"Cache hits (delivered): {stats.cache_hits} ({saved} of delivered pictures came from cache)",
         f"Unique cached images: {stats.cached_images}, cache reuse count: {stats.cache_reuse_count}",
-        f"Recorded image cost: {stats.provider_cost:g}"
-        + ("" if stats.provider_cost else " (set XAVIRA_COST_PER_IMAGE to record it)"),
+        f"Xavira credits used: {stats.provider_credits:g}"
+        + ("" if stats.provider_credits else " (set XAVIRA_CREDITS_PER_IMAGE to record them)"),
     ]
     if stats.top_characters:
         lines.append("Most image-service calls: " + ", ".join(
-            f"{name} {calls}" + (f" ({cost:g})" if cost else "") for name, calls, cost in stats.top_characters
+            f"{name} {calls}" + (f" ({cost:g} credits)" if cost else "")
+            for name, calls, cost in stats.top_characters
         ))
     return "\n".join(lines)

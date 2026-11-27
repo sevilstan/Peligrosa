@@ -70,16 +70,20 @@ async def seed(maker):
             s.add(CreditTransaction(user_id=user_id, amount=amount, balance_after=0, reason="x", created_at=created))
         s.add(ImageCacheEntry(character_id=character_id, scene_key="k", image_key="a.png", use_count=3))
         s.add(ImageCacheEntry(character_id=character_id, scene_key="k", image_key="b.png", use_count=1))
-        for source, status, created, cost in [
-            ("provider", "ok", RECENT, 2.0),
-            ("provider", "ok", OLD, 2.0),
-            ("provider", "refused", RECENT, 2.0),
-            ("cache", "ok", RECENT, None),
+        for source, status, delivery, created, credits in [
+            ("provider", "ok", "delivered", RECENT, 2.0),
+            ("provider", "ok", "delivered", OLD, 2.0),
+            ("provider", "refused", None, RECENT, None),
+            ("provider", "ok", "failed", RECENT, 2.0),  # made and paid for, Telegram did not deliver
+            ("cache", "ok", "delivered", RECENT, None),
+            ("cache", "ok", "failed", RECENT, None),  # reuse that never reached the user
+            ("cache", "ok", "pending", RECENT, None),  # still unknown
         ]:
             s.add(
                 ImageGeneration(
                     user_id=user_id, character_id=character_id, kind="photo", source=source,
-                    status=status, provider="xavira", cost=cost, created_at=created,
+                    status=status, delivery=delivery, provider="xavira", provider_credits=credits,
+                    created_at=created,
                 )
             )
         await s.commit()
@@ -97,9 +101,11 @@ def test_the_numbers_count_the_last_day_and_all_time(run_db):
         assert (stats.paid_count, stats.paid_stars, stats.paid_stars_24h, stats.refunded_count) == (2, 150, 50, 1)
         assert stats.pictures_24h == 1
         assert (stats.cached_images, stats.cache_reuse_count) == (2, 4)
-        assert (stats.provider_calls, stats.provider_calls_24h, stats.provider_failed) == (3, 2, 1)
-        assert stats.cache_hits == 1 and stats.provider_cost == 6.0
-        assert len(stats.top_characters) == 1 and stats.top_characters[0][1:] == (3, 6.0)
+        assert (stats.provider_calls, stats.provider_calls_24h, stats.provider_failed) == (4, 3, 1)
+        assert (stats.provider_undelivered, stats.provider_delivered) == (1, 2)
+        assert stats.cache_hits == 1  # only a cache reuse that was delivered counts
+        assert stats.provider_credits == 6.0  # paid-but-undelivered still used Xavira credits
+        assert len(stats.top_characters) == 1 and stats.top_characters[0][1:] == (4, 6.0)
 
     run_db(scenario)
 
@@ -112,9 +118,10 @@ def test_the_report_is_readable_and_has_no_private_text(run_db):
 
         assert "Users: 3 total, 1 new, 1 active" in text
         assert "1 refunded" in text and "2 paid (150 Stars)" in text
-        assert "Image-service calls: 3 (1 refused/failed), cache hits: 1 (25% served from cache)" in text
+        assert "Image-service calls: 4 (1 refused/failed, 1 made but not delivered)" in text
+        assert "Cache hits (delivered): 1 (33% of delivered pictures came from cache)" in text
         assert "Unique cached images: 2, cache reuse count: 4" in text
-        assert "Recorded image cost: 6" in text
+        assert "Xavira credits used: 6" in text and "$" not in text and "TRY" not in text
         assert "private sentence" not in text and "example.test" not in text
 
     run_db(scenario)
@@ -124,7 +131,7 @@ def test_an_empty_database_gives_zeros_not_errors(run_db):
     async def scenario(maker):
         async with maker() as s:
             text = format_stats(await StatsService(s).collect())
-        assert "Users: 0 total" in text and "(- served from cache)" in text
+        assert "Users: 0 total" in text and "(- of delivered pictures came from cache)" in text
 
     run_db(scenario)
 
