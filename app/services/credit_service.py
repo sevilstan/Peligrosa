@@ -47,6 +47,7 @@ class CreditConfig:
     group_message_cost: int = 2
     group_create_cost: int = 50
     image_cost: int = 5
+    art_cost: int = 10
     subscriber_daily_cap: int = 100
     sub_group_create_free: bool = True
 
@@ -59,6 +60,7 @@ class CreditConfig:
             group_message_cost=settings.GROUP_MESSAGE_COST,
             group_create_cost=settings.GROUP_CREATE_COST,
             image_cost=settings.IMAGE_COST,
+            art_cost=settings.ART_COST,
             subscriber_daily_cap=max(1, settings.SUB_DAILY_MESSAGE_CAP),  # never unlimited
             sub_group_create_free=settings.SUB_GROUP_CREATE_FREE,
         )

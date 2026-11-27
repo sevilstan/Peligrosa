@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     GROUP_MESSAGE_COST: int = 2
     GROUP_CREATE_COST: int = 50
     IMAGE_COST: int = 5
+    ART_COST: int = 10  # "Create art": a free-text picture is never cached, so it costs more
 
     # Pictures in chats (Xavira). Off until IMAGES_ENABLED=true and a key is set.
     IMAGES_ENABLED: bool = False

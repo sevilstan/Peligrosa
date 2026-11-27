@@ -172,6 +172,18 @@ nobody gets the same picture twice. The user still pays the same credits.
 Errors that need you (key rejected, out of credit, unknown character id, low
 balance) are logged as ERROR and arrive as operator alerts.
 
+Groups: `/photo` in a group asks "who should send it?" (only members that can be
+drawn are listed); the chosen member sends the picture, same price and cache.
+
+Create art: `/art` (or the "Create art" button) asks the user to describe a
+picture; they reply with text and are offered it for `ART_COST` credits
+(default 10). The text goes to Xavira as written, only cleaned (control
+characters removed, at most 300 characters). No word filter on our side:
+content moderation is Xavira's job, and a refused picture returns the credits.
+These pictures are never cached (each one is a new Xavira call, hence the higher
+price) and nothing is written to the logs about the text. The character must
+still have an image id and an adult `profile: age:`. They show up in the gallery.
+
 My pictures: `/gallery` (or the "My pictures" menu button) shows every picture
 the user received as a slider (‹ n/total ›, newest first, up to 200, wraps
 around). It reads the picture messages of the user's own chats, so deleting a
