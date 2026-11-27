@@ -2,7 +2,8 @@
 
 What goes: all conversations (with their messages and participants), the
 characters' memories of the user, the user's own memory records, relationship
-and mood data that belong to the user's chats.
+and mood data that belong to the user's chats, and the log of commands and
+buttons they used.
 
 What stays, on purpose: the account row (Telegram id, credit balance,
 subscription end) and the credit/payment records. Payment records may have to
@@ -27,6 +28,7 @@ from app.models.character_memory import CharacterMemory
 from app.models.character_relationship import CharacterRelationship
 from app.models.conversation import Conversation
 from app.models.user import User
+from app.models.user_event import UserEvent
 from app.models.user_memory import UserMemory
 
 
@@ -68,6 +70,7 @@ class UserDataService:
             await self.session.execute(
                 delete(CharacterEmotion).where(CharacterEmotion.user_id == user_id)
             )
+            await self.session.execute(delete(UserEvent).where(UserEvent.user_id == user_id))
             # Messages and participants go with their conversations (cascade).
             conversations = await self.session.execute(
                 delete(Conversation).where(Conversation.user_id == user_id)

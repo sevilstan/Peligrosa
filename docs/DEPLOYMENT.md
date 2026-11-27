@@ -68,7 +68,14 @@ Nothing is unlimited: a subscriber has a daily message cap.
   `app/telegram/texts.py` (`terms_text`) before going live. You are responsible
   for disputes. Test payments in Telegram's test environment first.
 
-## Privacy: /deletedata
+## Privacy: /export and /deletedata
+
+`/export` sends the user one JSON file with everything we hold about them:
+account basics, their chats with every message, what each character remembers,
+their other memory records, credit history and payments. It is built only from
+rows with their own user id. It leaves out the password hash, mood and
+relationship scores and anything about other users. Telegram limits files to
+50 MB; a normal chat history is far below that.
 
 A user can delete all their data with `/deletedata` (two steps: warning, then a
 confirm button). It removes every chat and message, the characters' memories of
@@ -182,6 +189,37 @@ users asking for the same scene get one of those instead of a new one, and
 nobody gets the same picture twice. The user still pays the same credits.
 Errors that need you (key rejected, out of credit, unknown character id, low
 balance) are logged as ERROR and arrive as operator alerts.
+
+Groups: `/photo` in a group asks "who should send it?" (only members that can be
+drawn are listed); the chosen member sends the picture, same price and cache.
+
+Create art: `/art` (or the "Create art" button) asks the user to describe a
+picture; they reply with text and are offered it for `ART_COST` credits
+(default 10). The text goes to Xavira as written, only cleaned (control
+characters removed, at most 300 characters). No word filter on our side:
+content moderation is Xavira's job, and a refused picture returns the credits.
+These pictures are never cached (each one is a new Xavira call, hence the higher
+price) and nothing is written to the logs about the text. The character must
+still have an image id and an adult `profile: age:`. They show up in the gallery.
+
+Activity log: the table `user_events` records which command or button a user
+used (for example `cmd_photo`, `btn_open`) and when. Never message text,
+arguments, character or chat ids: names come from a closed set (unknown
+commands are logged as `cmd_unknown`). It runs in its own short database
+session, so a logging error can never break a reply. `/stats` shows the most
+used actions of the last 24 hours, `/export` includes the user's own log and
+`/deletedata` removes it. `/terms` tells users about it. There is no automatic
+pruning yet: at one row per tap this stays small for a long time, but delete old
+rows (`DELETE FROM user_events WHERE created_at < now() - interval '180 days'`)
+if it ever matters.
+
+Cost ledger: every picture attempt is written to `image_generations` (user,
+character, photo or art, image-service call or cache hit, ok/refused/failed,
+provider, model, cost). No prompt or chat text is stored. Set
+`XAVIRA_COST_PER_IMAGE` to what one image costs you in Xavira credits to have
+cost filled in; `/stats` then shows calls, failures, cache hits, recorded cost
+and the characters with the most calls. The ledger is kept after `/deletedata`
+(accounting, like credit history).
 
 My pictures: `/gallery` (or the "My pictures" menu button) shows every picture
 the user received as a slider (‹ n/total ›, newest first, up to 200, wraps

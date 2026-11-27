@@ -19,8 +19,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.character import Character
 from app.models.user import User
 from app.services.telegram_user_service import TelegramUserService
+from app.services.user_export_service import UserExportService
 from app.services.user_data_service import UserDataService
 from app.services.character_gallery_service import CharacterGalleryService
 from app.services.character_removal_service import (
@@ -72,6 +74,9 @@ from app.telegram.keyboards import (
     DELETE_PREFIX,
     GALLERY_PREFIX,
     PICTURES_PREFIX,
+    PHOTO_PICK_PREFIX,
+    ART_PICK_PREFIX,
+    character_pick_keyboard,
     pictures_keyboard,
     GROUP_CANCEL,
     GROUP_DONE,
@@ -96,6 +101,7 @@ from app.telegram.group_drafts import GroupDrafts
 from app.telegram.slides import build_slide, edit_slide, send_slide, shorten
 from app.providers.image_base import ImageGenerationError, ImageGenerationRefused
 from app.services.image_prompt_builder import ImageNotAvailable
+from app.services.image_scene import clean_art_text
 from app.services.picture_gallery_service import PictureGalleryService, UserPicture
 from app.services.image_service import ImageFeature, ImageService, can_draw
 from app.services.photo_request import wants_photo
@@ -1024,30 +1030,142 @@ async def photo_command(
     if active is None:
         await message.answer(t(language, "img_no_chat"), reply_markup=main_menu(language))
         return
+    if active.is_group:
+        await _pick_character(message, images, active, language, PHOTO_PICK_PREFIX, "img_pick")
+        return
     await _offer_photo(message, session, user, images, offers, active, None, explicit=True)
 
 
-async def _offer_photo(message, session, user, images, offers, active, request_text, *, explicit) -> None:
+async def _pick_character(message, images, active, language, prefix, text_key) -> None:
+    """Group chat: let the user choose which character makes the picture."""
+    drawable = [c for c in active.characters if can_draw(images, c.slug)]
+    if not drawable:
+        await message.answer(t(language, "img_pick_none"))
+        return
+    await message.answer(
+        t(language, text_key), reply_markup=character_pick_keyboard(prefix, drawable, language)
+    )
+
+
+async def _offer_photo(
+    message, session, user, images, offers, active, request_text, *, explicit, character_slug=None, art_text=None
+) -> None:
+    """Offer a photo (or, with art_text, a "Create art" picture) for a yes/no."""
     language = user.language_code
     if active.is_group:
+        member = next((c for c in active.characters if c.slug == character_slug), None)
+        if member is None:
+            return  # a group needs a chosen member
+        slug, name = member.slug, member.name
+    else:
+        slug, name = active.characters[0].slug, active.name
+    if not can_draw(images, slug):
         if explicit:
-            await message.answer(t(language, "img_group"))
-        return
-    if not can_draw(images, active.characters[0].slug):
-        if explicit:
-            await message.answer(t(language, "img_unavailable", name=html.escape(active.name)))
+            await message.answer(t(language, "img_unavailable", name=html.escape(name)))
         return
     if not explicit and offers.recently_offered(active.conversation_id):
         return
 
     config = CreditConfig.from_settings(settings)
-    if config.enabled and config.image_cost > 0:
-        text = t(language, "img_offer", name=html.escape(active.name), cost=config.image_cost)
+    cost = config.art_cost if art_text else config.image_cost
+    prefix = "art_offer" if art_text else "img_offer"
+    if config.enabled and cost > 0:
+        text = t(language, prefix, name=html.escape(name), cost=cost)
     else:
-        text = t(language, "img_offer_free", name=html.escape(active.name))
+        text = t(language, f"{prefix}_free", name=html.escape(name))
 
     sent = await message.answer(text, reply_markup=photo_offer_keyboard(language))
-    offers.add(sent.chat.id, sent.message_id, user.id, active.conversation_id, request_text)
+    offers.add(
+        sent.chat.id,
+        sent.message_id,
+        user.id,
+        active.conversation_id,
+        request_text,
+        character_slug=slug if active.is_group else None,
+        art_text=art_text,
+    )
+
+
+async def _picked_member(callback, session, user, provider, images, prefix):
+    """(message, active chat, slug) for a group character button, or None."""
+    message = callback.message
+    slug = callback.data.removeprefix(prefix)
+    if images is None or not isinstance(message, Message):
+        await callback.answer()
+        return None
+    active = await ChatSessionService(session, provider).get_active(user.id)
+    if active is None or not active.is_group or not any(c.slug == slug for c in active.characters):
+        await callback.answer(t(user.language_code, "img_expired"), show_alert=True)
+        return None
+    await callback.answer()
+    with contextlib.suppress(TelegramAPIError):
+        await message.delete()
+    return message, active, slug
+
+
+async def photo_pick(callback: CallbackQuery, session: AsyncSession, user: User, provider, images, offers) -> None:
+    picked = await _picked_member(callback, session, user, provider, images, PHOTO_PICK_PREFIX)
+    if picked is not None:
+        message, active, slug = picked
+        await _offer_photo(
+            message, session, user, images, offers, active, None, explicit=True, character_slug=slug
+        )
+
+
+async def art_pick(callback: CallbackQuery, session: AsyncSession, user: User, provider, images, offers) -> None:
+    picked = await _picked_member(callback, session, user, provider, images, ART_PICK_PREFIX)
+    if picked is not None:
+        message, active, slug = picked
+        if not can_draw(images, slug):
+            await message.answer(t(user.language_code, "img_unavailable", name=""))
+            return
+        offers.ask_art(user.id, active.conversation_id, slug)
+        await message.answer(t(user.language_code, "art_ask"), reply_markup=ForceReply(selective=True))
+
+
+async def art_command(
+    message: Message, session: AsyncSession, user: User, provider, images: ImageFeature | None, offers: PhotoOffers
+) -> None:
+    """/art and the "Create art" button: the user describes the picture."""
+    language = user.language_code
+    if images is None:
+        await message.answer(t(language, "img_off"))
+        return
+    active = await ChatSessionService(session, provider).get_active(user.id)
+    if active is None:
+        await message.answer(t(language, "img_no_chat"), reply_markup=main_menu(language))
+        return
+    if active.is_group:
+        await _pick_character(message, images, active, language, ART_PICK_PREFIX, "art_pick")
+        return
+    if not can_draw(images, active.characters[0].slug):
+        await message.answer(t(language, "img_unavailable", name=html.escape(active.name)))
+        return
+    offers.ask_art(user.id, active.conversation_id, None)
+    await message.answer(t(language, "art_ask"), reply_markup=ForceReply(selective=True))
+
+
+async def art_reply(
+    message: Message, session: AsyncSession, user: User, provider, images: ImageFeature | None, offers: PhotoOffers
+) -> None:
+    """The user's answer to "describe the picture": turn it into an offer."""
+    language = user.language_code
+    ask = offers.take_art_ask(user.id)
+    if images is None or ask is None:
+        await message.answer(t(language, "img_expired"))
+        return
+    art = clean_art_text(message.text)
+    if art is None:
+        await message.answer(t(language, "art_invalid"))
+        return
+    active = await ChatSessionService(session, provider).get_active(user.id)
+    if active is None or active.conversation_id != ask.conversation_id:
+        await message.answer(t(language, "img_expired"))
+        return
+    await _offer_photo(
+        message, session, user, images, offers, active, None, explicit=True,
+        character_slug=ask.character_slug, art_text=art,
+    )
 
 
 # ---------------------------------------------------------- my pictures
@@ -1168,8 +1286,8 @@ async def photo_yes(
         callback,
         session,
         user,
-        config.image_cost,
-        "image",
+        config.art_cost if offer.art_text else config.image_cost,
+        "art" if offer.art_text else "image",
         offer.conversation_id,
         included_in_subscription=False,
     )
@@ -1187,7 +1305,11 @@ async def photo_yes(
     try:
         async with typing_indicator(bot, message.chat.id, "upload_photo"):
             photo = await ImageService(session, images, provider).generate(
-                offer.conversation_id, user.id, offer.request_text
+                offer.conversation_id,
+                user.id,
+                offer.request_text,
+                character_slug=offer.character_slug,
+                art_text=offer.art_text,
             )
         await bot.send_photo(message.chat.id, BufferedInputFile(photo.data, filename="photo.jpg"))
     except ImageGenerationRefused:
@@ -1205,6 +1327,11 @@ async def photo_yes(
 
 
 async def _character_name(session, offer, provider, user) -> str:
+    if offer.character_slug:
+        found = (
+            await session.execute(select(Character.name).where(Character.slug == offer.character_slug))
+        ).scalar_one_or_none()
+        return found or ""
     try:
         _, character = await ConversationService(session, ai_provider=provider).get_direct_conversation(
             offer.conversation_id, user.id
@@ -1257,6 +1384,16 @@ async def deletedata_command(message: Message, user: User) -> None:
     )
 
 
+async def export_command(message: Message, session: AsyncSession, user: User) -> None:
+    """/export: send the user a JSON file of everything we hold about them."""
+    language = user.language_code
+    data = await UserExportService(session).build(user)
+    await message.answer_document(
+        BufferedInputFile(data, filename="my-peligrosa-data.json"),
+        caption=t(language, "export_caption"),
+    )
+
+
 async def wipe_confirm(callback: CallbackQuery, session: AsyncSession, user: User) -> None:
     language = user.language_code
     await callback.answer()
@@ -1303,6 +1440,8 @@ def build_router() -> Router:
     router.message.register(name_command, Command("name"))
     router.message.register(pictures_command, Command("gallery"))
     router.message.register(pictures_command, F.text.in_(all_labels("menu_pictures")))
+    router.message.register(art_command, Command("art"))
+    router.message.register(art_command, F.text.in_(all_labels("menu_art")))
     router.message.register(photo_command, Command("photo"))
     router.message.register(stats_command, Command("stats"))
     router.message.register(photo_command, F.text.in_(all_labels("menu_photo")))
@@ -1310,6 +1449,7 @@ def build_router() -> Router:
     router.message.register(delete_command, Command("delete"))
     router.message.register(proactive_command, Command("proactive"))
     router.message.register(deletedata_command, Command("deletedata"))
+    router.message.register(export_command, Command("export"))
     router.message.register(credits_command, Command("credits"))
     router.message.register(buy_command, Command("buy"))
     router.message.register(terms_command, Command("terms"))
@@ -1324,11 +1464,19 @@ def build_router() -> Router:
         F.reply_to_message.from_user.is_bot,
         F.reply_to_message.text.in_(all_labels("ask_name")),
     )
+    router.message.register(
+        art_reply,
+        F.text,
+        F.reply_to_message.from_user.is_bot,
+        F.reply_to_message.text.in_(all_labels("art_ask")),
+    )
     router.message.register(unknown_command, F.text.startswith("/"))
     router.message.register(chat_text, F.text)
     router.message.register(non_text)
 
     router.callback_query.register(photo_yes, F.data == PHOTO_YES)
+    router.callback_query.register(photo_pick, F.data.startswith(PHOTO_PICK_PREFIX))
+    router.callback_query.register(art_pick, F.data.startswith(ART_PICK_PREFIX))
     router.callback_query.register(photo_no, F.data == PHOTO_NO)
     router.callback_query.register(gallery_page, F.data.startswith(GALLERY_PREFIX))
     router.callback_query.register(pictures_page, F.data.startswith(PICTURES_PREFIX))

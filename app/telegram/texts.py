@@ -14,6 +14,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "The characters are fictional AI personalities, and this service is for adults (18+). /terms"
         ),
         "cmd_deletedata": "Delete all my data",
+        "cmd_export": "Download my data",
+        "export_caption": "Your data: account, chats, what the characters remember, credits and payments.",
         "wipe_warning": (
             "⚠️ This deletes <b>all your chats, messages and everything the characters remember about you</b>. "
             "It cannot be undone.\n\n"
@@ -29,6 +31,15 @@ TEXTS: dict[str, dict[str, str]] = {
         "menu_history": "📜 History",
         "menu_photo": "📷 Request photo",
         "menu_pictures": "🖼 My pictures",
+        "menu_art": "🎨 Create art",
+        "cmd_art": "Describe a picture and have your character make it",
+        "art_ask": "🎨 Describe the picture you want (a reply to this message works).",
+        "art_offer": "🎨 {name} will make this for you. It costs {cost} credits. Go ahead?",
+        "art_offer_free": "🎨 {name} will make this for you. Go ahead?",
+        "art_invalid": "I could not read a description. Try /art again.",
+        "img_pick": "📷 Who should send the photo?",
+        "art_pick": "🎨 Who should make it?",
+        "img_pick_none": "Nobody in this chat can send pictures.",
         "cmd_pictures": "See the pictures you received",
         "pic_empty": "You have no pictures yet. Use the photo button in a chat to ask for one.",
         "pic_caption": "{name} · {date} · {page}/{total}",
@@ -43,7 +54,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "img_unavailable": "{name} can't send photos.",
         "img_off": "Photos are not available right now.",
         "img_no_chat": "Pick a character first, then ask for a photo.",
-        "img_group": "Photos work in personal chats only.",
         "img_failed": "The photo could not be made right now. Your credits were returned. Try again in a moment.",
         "img_refused": "{name} can't send that one. Your credits were returned. Try asking for something else.",
         "gallery_empty": "There are no characters available right now. Please check back soon.",
@@ -104,6 +114,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Credits and subscriptions are digital items paid with Telegram Stars.\n"
             "• Credits are used by sending messages; a failed reply is refunded automatically.\n"
             "• Characters are fictional AI characters. You must be 18 or older.\n"
+            "• We record which commands and buttons you use (never your messages) to improve the service. "
+            "/deletedata removes this record.\n"
             "• Your chats may be used to improve the service and to train our models. "
             "If you delete your data with /deletedata, we remove it from our training data and backups.\n"
             "• Telegram and Telegram support cannot help with purchases made in this bot. Use /paysupport.\n"
@@ -177,6 +189,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "Karakterler kurgusal yapay zekâ kişilikleridir ve bu hizmet yetişkinler (18+) içindir. /terms"
         ),
         "cmd_deletedata": "Tüm verilerimi sil",
+        "cmd_export": "Verilerimi indir",
+        "export_caption": "Verilerin: hesap, sohbetler, karakterlerin hatırladıkları, kredi ve ödemeler.",
         "wipe_warning": (
             "⚠️ Bu işlem <b>tüm sohbetlerini, mesajlarını ve karakterlerin senin hakkında hatırladığı her şeyi</b> siler. "
             "Geri alınamaz.\n\n"
@@ -192,6 +206,15 @@ TEXTS: dict[str, dict[str, str]] = {
         "menu_history": "📜 Geçmiş",
         "menu_photo": "📷 Fotoğraf iste",
         "menu_pictures": "🖼 Galerim",
+        "menu_art": "🎨 Resim yaptır",
+        "cmd_art": "Bir resmi tarif et, karakterin yapsın",
+        "art_ask": "🎨 İstediğin resmi anlat (bu mesaja yanıt vermen yeterli).",
+        "art_offer": "🎨 {name} bunu senin için yapacak. Bedeli {cost} kredi. Devam edelim mi?",
+        "art_offer_free": "🎨 {name} bunu senin için yapacak. Devam edelim mi?",
+        "art_invalid": "Bir tarif okuyamadım. /art ile tekrar dene.",
+        "img_pick": "📷 Fotoğrafı kim göndersin?",
+        "art_pick": "🎨 Kim yapsın?",
+        "img_pick_none": "Bu sohbette resim gönderebilecek kimse yok.",
         "cmd_pictures": "Aldığın fotoğrafları gör",
         "pic_empty": "Henüz fotoğrafın yok. Bir sohbette fotoğraf butonuyla isteyebilirsin.",
         "pic_caption": "{name} · {date} · {page}/{total}",
@@ -206,7 +229,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "img_unavailable": "{name} fotoğraf gönderemiyor.",
         "img_off": "Fotoğraflar şu an kullanılamıyor.",
         "img_no_chat": "Önce bir karakter seç, sonra fotoğraf isteyebilirsin.",
-        "img_group": "Fotoğraf sadece birebir sohbetlerde var.",
         "img_failed": "Fotoğraf şu an hazırlanamadı. Kredin iade edildi. Biraz sonra tekrar dene.",
         "img_refused": "{name} bunu gönderemiyor. Kredin iade edildi. Başka bir şey iste.",
         "gallery_empty": "Şu anda gösterilecek karakter yok. Lütfen biraz sonra tekrar bak.",
@@ -267,6 +289,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Kredi ve abonelik, Telegram Yıldızları ile ödenen dijital ürünlerdir.\n"
             "• Krediler mesaj yazarak harcanır; cevap alınamazsa kredi otomatik iade edilir.\n"
             "• Karakterler kurgusal yapay zekâ karakterleridir. 18 yaşında veya daha büyük olmalısın.\n"
+            "• Hangi komut ve butonları kullandığını kaydederiz (mesajlarını asla), hizmeti geliştirmek için. "
+            "/deletedata bu kaydı da siler.\n"
             "• Sohbetlerin hizmeti geliştirmek ve modellerimizi eğitmek için kullanılabilir. "
             "/deletedata ile verini silersen eğitim verimizden ve yedeklerimizden de çıkarırız.\n"
             "• Telegram ve Telegram desteği bu bottaki satın almalarda yardımcı olamaz. /paysupport kullan.\n"

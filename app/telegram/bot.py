@@ -21,7 +21,7 @@ from app.telegram.group_drafts import GroupDrafts
 from app.services.initiative_service import InitiativeConfig
 from app.telegram.handlers import build_router
 from app.telegram.initiative_runner import InitiativeRunner
-from app.telegram.middlewares import ChatOrderMiddleware, DbSessionMiddleware, UserMiddleware
+from app.telegram.middlewares import ChatOrderMiddleware, DbSessionMiddleware, EventMiddleware, UserMiddleware
 from app.telegram.texts import TEXTS, resolve_language, t
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ _COMMANDS = (
     ("newgroup", "cmd_newgroup"),
     ("delete", "cmd_delete"),
     ("proactive", "cmd_proactive"),
+    ("export", "cmd_export"),
     ("deletedata", "cmd_deletedata"),
     ("credits", "cmd_credits"),
     ("buy", "cmd_buy"),
@@ -43,6 +44,11 @@ _COMMANDS = (
     ("support", "cmd_support"),
     ("paysupport", "cmd_paysupport"),
 )
+
+# Every command the bot answers (the menu list plus the ones it does not advertise).
+KNOWN_COMMANDS = {name for name, _ in _COMMANDS} | {
+    "photo", "art", "gallery", "stats", "grant", "refund", "export",
+}
 
 
 def build_initiative_runner(bot, session_maker, provider, locks) -> InitiativeRunner:
@@ -163,6 +169,7 @@ def build_dispatcher(
     dispatcher.update.outer_middleware(ChatOrderMiddleware(locks or UserLocks()))
     dispatcher.update.outer_middleware(DbSessionMiddleware(session_maker))
     dispatcher.update.outer_middleware(UserMiddleware())
+    dispatcher.update.outer_middleware(EventMiddleware(session_maker, KNOWN_COMMANDS))
     dispatcher.include_router(build_router())
 
     @dispatcher.errors()
@@ -198,6 +205,7 @@ async def set_commands(bot: Bot) -> None:
             ]
             if settings.IMAGES_ENABLED:
                 commands.append(BotCommand(command="photo", description=t(language, "cmd_photo")))
+                commands.append(BotCommand(command="art", description=t(language, "cmd_art")))
                 commands.append(BotCommand(command="gallery", description=t(language, "cmd_pictures")))
             await bot.set_my_commands(
                 commands, language_code=None if language == "en" else language

@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 GALLERY_PREFIX = "gallery:"
 PICTURES_PREFIX = "pic:"
+PHOTO_PICK_PREFIX = "imgp:"  # group: who should send the photo
+ART_PICK_PREFIX = "imga:"  # group: who should draw the art
 OPEN_PREFIX = "open:"
 NEW_PREFIX = "new:"
 CHAT_PREFIX = "chat:"
@@ -61,6 +63,7 @@ def main_menu(language: str | None) -> ReplyKeyboardMarkup:
                 [
                     [
                         KeyboardButton(text=t(language, "menu_photo")),
+                        KeyboardButton(text=t(language, "menu_art")),
                         KeyboardButton(text=t(language, "menu_pictures")),
                     ]
                 ]
@@ -333,3 +336,13 @@ def pictures_keyboard(index: int, total: int, language: str | None) -> InlineKey
             ]
         ]
     )
+
+
+def character_pick_keyboard(prefix: str, characters, language: str | None) -> InlineKeyboardMarkup:
+    """One button per character that can be drawn (group chats)."""
+    rows = []
+    for character in characters:
+        data = f"{prefix}{character.slug}"
+        if _fits(data):
+            rows.append([InlineKeyboardButton(text=character.name, callback_data=data)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

@@ -99,3 +99,15 @@ def parse_scene(text: str | None) -> SceneTags:
         pose=pose if pose in POSES else DEFAULT_POSE,
         outfit=normalize_outfit(found.get("outfit")),
     )
+
+
+MAX_ART_CHARS = 300
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]+")
+
+
+def clean_art_text(text: str | None) -> str | None:
+    """The user's own picture description, made safe to pass on: control
+    characters gone, spaces collapsed, at most MAX_ART_CHARS. Content moderation
+    is the image service's job; this only keeps the text well-formed."""
+    cleaned = " ".join(_CONTROL.sub(" ", text or "").split())[:MAX_ART_CHARS].strip()
+    return cleaned or None

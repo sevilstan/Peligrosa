@@ -105,7 +105,7 @@ def test_the_offer_names_the_price_when_credits_are_on(run_db, tmp_path, credits
     run_db(scenario)
 
 
-@pytest.mark.parametrize("case", ["off", "no_chat", "undrawable", "group"])
+@pytest.mark.parametrize("case", ["off", "no_chat", "undrawable"])
 def test_no_offer_when_it_cannot_work(run_db, tmp_path, case):
     async def scenario(maker):
         if case == "no_chat":
@@ -119,12 +119,7 @@ def test_no_offer_when_it_cannot_work(run_db, tmp_path, case):
             bot, _ = await started(maker, tmp_path, loader=FakeLoader())
             expected = t("en", "img_unavailable", name="Amy")
         else:
-            bot, _ = await started(maker, tmp_path)
-            await bot.send(message_update("/newgroup"))
-            await bot.send(callback_update("gsel:0:amy"))
-            await bot.send(callback_update("gsel:0:bob"))
-            await bot.send(callback_update("gdone"))
-            expected = t("en", "img_group")
+            raise AssertionError(case)
 
         await bot.send(message_update("/photo"))
 

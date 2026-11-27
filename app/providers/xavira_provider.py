@@ -68,6 +68,12 @@ class AiohttpTransport:
 
 
 class XaviraImageProvider(ImageProvider):
+    name = "xavira"
+
+    @property
+    def model(self) -> str:
+        return self.resolution
+
     def __init__(
         self,
         api_key: str,
