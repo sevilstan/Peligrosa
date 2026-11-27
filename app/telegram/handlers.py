@@ -94,6 +94,7 @@ from app.providers.image_base import ImageGenerationError, ImageGenerationRefuse
 from app.services.image_prompt_builder import ImageNotAvailable
 from app.services.image_service import ImageFeature, ImageService, can_draw
 from app.services.photo_request import wants_photo
+from app.services.stats_service import StatsService, format_stats
 from app.telegram.photo_offers import PhotoOffers
 from app.telegram.pacing import PacingConfig, gap_before_reply, play, split_bubbles
 from app.telegram.texts import all_labels, t
@@ -649,6 +650,10 @@ async def credits_command(message: Message, session: AsyncSession, user: User) -
         await message.answer(t(language, "credits_off"))
         return
 
+    if user.telegram_id in _admin_ids():
+        await message.answer("Operator account: nothing is charged to you.")
+        return
+
     service = _credits(session)
     await service.ensure_trial(user.id)
     status = await service.status(user.id)
@@ -692,6 +697,15 @@ async def grant_command(
 
     balance = await CreditService(session, CreditConfig(enabled=True)).grant(target.id, int(parts[1]))
     await message.answer(f"Granted {int(parts[1])}. New balance: {balance}.")
+
+
+async def stats_command(message: Message, session: AsyncSession, user: User) -> None:
+    """Operator only: a few counts. Anyone else gets the "unknown command"
+    answer, so the command's existence is not revealed."""
+    if user.telegram_id not in _admin_ids():
+        await unknown_command(message, user)
+        return
+    await message.answer(format_stats(await StatsService(session).collect()), parse_mode=None)
 
 
 async def _charge_or_explain(
@@ -1195,6 +1209,7 @@ def build_router() -> Router:
     router.message.register(new_chat_command, Command("new"))
     router.message.register(name_command, Command("name"))
     router.message.register(photo_command, Command("photo"))
+    router.message.register(stats_command, Command("stats"))
     router.message.register(photo_command, F.text.in_(all_labels("menu_photo")))
     router.message.register(group_command, Command("newgroup"))
     router.message.register(delete_command, Command("delete"))
