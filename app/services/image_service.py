@@ -22,8 +22,10 @@ from sqlalchemy.orm import selectinload
 from app.models.conversation import Conversation
 from app.models.conversation_participant import ConversationParticipant
 from app.models.image_cache import ImageCacheEntry
+from app.models.image_generation import ImageGeneration
+from app.core.config import settings
 from app.models.message import Message
-from app.providers.image_base import ImageProvider, image_extension
+from app.providers.image_base import ImageGenerationRefused, ImageProvider, image_extension
 from app.services.character_definition_loader import CharacterDefinitionLoader
 from app.services.image_prompt_builder import ImageNotAvailable
 from app.services.image_scene import SCENE_PROMPT, SceneTags, clean_art_text, parse_scene
@@ -130,9 +132,7 @@ class ImageService:
             raise ValueError("Empty picture description.")
 
         if art is not None:
-            data = await self.feature.provider.generate_image(
-                art, character_ref=definition.image_character_id
-            )
+            data = await self._call_provider(art, definition, character, user_id, "art")
             key = await self.feature.storage.save(data, image_extension(data) or "png")
             from_cache = False
         else:
@@ -160,14 +160,46 @@ class ImageService:
         if reused is not None:
             key, data = reused
             from_cache = True
+            await self._log(user_id, character, "photo", "cache", "ok")
         else:
-            data = await self.feature.provider.generate_image(
-                tags.prompt(), character_ref=definition.image_character_id
-            )
+            data = await self._call_provider(tags.prompt(), definition, character, user_id, "photo")
             key = await self.feature.storage.save(data, image_extension(data) or "png")
             self.session.add(ImageCacheEntry(character_id=character.id, scene_key=tags.key, image_key=key))
             from_cache = False
         return key, data, from_cache
+
+    async def _call_provider(self, prompt, definition, character, user_id, kind) -> bytes:
+        """The one place that spends image-service money; every attempt is
+        written to the cost ledger, including refusals and failures."""
+        try:
+            data = await self.feature.provider.generate_image(
+                prompt, character_ref=definition.image_character_id
+            )
+        except ImageGenerationRefused:
+            await self._log(user_id, character, kind, "provider", "refused")
+            raise
+        except Exception:
+            await self._log(user_id, character, kind, "provider", "failed")
+            raise
+        await self._log(user_id, character, kind, "provider", "ok")
+        return data
+
+    async def _log(self, user_id, character, kind, source, status) -> None:
+        provider = self.feature.provider
+        unit = settings.XAVIRA_COST_PER_IMAGE
+        self.session.add(
+            ImageGeneration(
+                user_id=user_id,
+                character_id=character.id,
+                kind=kind,
+                source=source,
+                status=status,
+                provider=getattr(provider, "name", "unknown"),
+                model=getattr(provider, "model", None),
+                cost=unit if source == "provider" and unit > 0 else None,
+            )
+        )
+        await self.session.commit()
 
     async def _from_cache(self, character_id, tags: SceneTags, user_id):
         """(key, bytes) of a stored picture this user has not got yet, or None."""
