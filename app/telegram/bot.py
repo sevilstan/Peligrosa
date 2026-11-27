@@ -198,6 +198,7 @@ async def set_commands(bot: Bot) -> None:
             ]
             if settings.IMAGES_ENABLED:
                 commands.append(BotCommand(command="photo", description=t(language, "cmd_photo")))
+                commands.append(BotCommand(command="gallery", description=t(language, "cmd_pictures")))
             await bot.set_my_commands(
                 commands, language_code=None if language == "en" else language
             )

@@ -5,11 +5,12 @@ import uuid
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
     ForceReply,
+    InputMediaPhoto,
     LabeledPrice,
     Message,
     PreCheckoutQuery,
@@ -70,6 +71,8 @@ from app.telegram.keyboards import (
     DELETE_CONFIRM_PREFIX,
     DELETE_PREFIX,
     GALLERY_PREFIX,
+    PICTURES_PREFIX,
+    pictures_keyboard,
     GROUP_CANCEL,
     GROUP_DONE,
     GROUP_NEW,
@@ -93,6 +96,7 @@ from app.telegram.group_drafts import GroupDrafts
 from app.telegram.slides import build_slide, edit_slide, send_slide, shorten
 from app.providers.image_base import ImageGenerationError, ImageGenerationRefused
 from app.services.image_prompt_builder import ImageNotAvailable
+from app.services.picture_gallery_service import PictureGalleryService, UserPicture
 from app.services.image_service import ImageFeature, ImageService, can_draw
 from app.services.photo_request import wants_photo
 from app.services.stats_service import StatsService, format_stats
@@ -1046,6 +1050,87 @@ async def _offer_photo(message, session, user, images, offers, active, request_t
     offers.add(sent.chat.id, sent.message_id, user.id, active.conversation_id, request_text)
 
 
+# ---------------------------------------------------------- my pictures
+
+
+async def _load_picture(
+    images: ImageFeature, pictures: list[UserPicture], start: int
+) -> tuple[int, bytes] | None:
+    """First picture at or after `start` (wrapping) whose file still exists."""
+    for step in range(len(pictures)):
+        index = (start + step) % len(pictures)
+        try:
+            return index, await images.storage.load(pictures[index].key)
+        except (FileNotFoundError, OSError, ValueError):
+            logger.warning("Picture file missing for gallery; skipping.")
+    return None
+
+
+def _picture_caption(language: str | None, picture: UserPicture, index: int, total: int) -> str:
+    return t(
+        language,
+        "pic_caption",
+        name=picture.character_name,
+        date=picture.created_at.strftime("%d.%m.%Y"),
+        page=index + 1,
+        total=total,
+    )
+
+
+async def pictures_command(
+    message: Message, session: AsyncSession, user: User, images: ImageFeature | None
+) -> None:
+    """/gallery and the "My pictures" menu button: a slider of received pictures."""
+    language = user.language_code
+    if images is None:
+        await message.answer(t(language, "img_off"))
+        return
+    pictures = await PictureGalleryService(session).list_for_user(user.id)
+    loaded = await _load_picture(images, pictures, 0) if pictures else None
+    if loaded is None:
+        await message.answer(t(language, "pic_empty"), reply_markup=main_menu(language))
+        return
+    index, data = loaded
+    await message.answer_photo(
+        BufferedInputFile(data, filename="photo.jpg"),
+        caption=_picture_caption(language, pictures[index], index, len(pictures)),
+        reply_markup=pictures_keyboard(index, len(pictures), language),
+    )
+
+
+async def pictures_page(
+    callback: CallbackQuery, session: AsyncSession, user: User, images: ImageFeature | None
+) -> None:
+    language = user.language_code
+    message = callback.message
+    if images is None or not isinstance(message, Message):
+        await callback.answer()
+        return
+    try:
+        start = int(callback.data.removeprefix(PICTURES_PREFIX))
+    except ValueError:
+        await callback.answer()
+        return
+    pictures = await PictureGalleryService(session).list_for_user(user.id)
+    loaded = await _load_picture(images, pictures, start % len(pictures)) if pictures else None
+    if loaded is None:
+        await callback.answer(t(language, "pic_missing"), show_alert=True)
+        return
+    index, data = loaded
+    try:
+        await message.edit_media(
+            media=InputMediaPhoto(
+                media=BufferedInputFile(data, filename="photo.jpg"),
+                caption=_picture_caption(language, pictures[index], index, len(pictures)),
+            ),
+            reply_markup=pictures_keyboard(index, len(pictures), language),
+        )
+    except TelegramBadRequest as exc:
+        if "message is not modified" not in str(exc):
+            logger.warning("Picture could not be shown (%s).", type(exc).__name__)
+    await callback.answer()
+
+
 async def photo_no(callback: CallbackQuery, user: User, offers: PhotoOffers) -> None:
     message = callback.message
     if message is not None:
@@ -1216,6 +1301,8 @@ def build_router() -> Router:
     router.message.register(history_command, F.text.in_(all_labels("menu_history")))
     router.message.register(new_chat_command, Command("new"))
     router.message.register(name_command, Command("name"))
+    router.message.register(pictures_command, Command("gallery"))
+    router.message.register(pictures_command, F.text.in_(all_labels("menu_pictures")))
     router.message.register(photo_command, Command("photo"))
     router.message.register(stats_command, Command("stats"))
     router.message.register(photo_command, F.text.in_(all_labels("menu_photo")))
@@ -1244,6 +1331,7 @@ def build_router() -> Router:
     router.callback_query.register(photo_yes, F.data == PHOTO_YES)
     router.callback_query.register(photo_no, F.data == PHOTO_NO)
     router.callback_query.register(gallery_page, F.data.startswith(GALLERY_PREFIX))
+    router.callback_query.register(pictures_page, F.data.startswith(PICTURES_PREFIX))
     router.callback_query.register(open_chat, F.data.startswith(OPEN_PREFIX))
     router.callback_query.register(new_chat, F.data.startswith(NEW_PREFIX))
     router.callback_query.register(switch_chat, F.data.startswith(CHAT_PREFIX))
