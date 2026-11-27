@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.core.config import settings
-from app.models import Conversation, Message, User
+from app.models import Conversation, CreditTransaction, Message, User
 from app.services.credit_service import CreditConfig, CreditService
 from app.telegram.texts import t
 from tests.telegram_harness import Harness, add_characters, callback_update, message_update
@@ -221,5 +221,30 @@ def test_only_an_operator_can_grant(run_db, tmp_path, credits_on, monkeypatch):
 
         await bot.send(message_update("/grant 777 5", user_id=9001))
         assert bot.texts()[-1] == "No user with that Telegram id."
+
+    run_db(scenario)
+
+
+def test_operators_are_never_charged_but_everyone_else_is(run_db, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "CREDITS_ENABLED", True)
+    monkeypatch.setattr(settings, "TRIAL_CREDITS", 0)  # nobody has any credits
+    monkeypatch.setattr(settings, "ADMIN_TELEGRAM_IDS", "1001")
+
+    async def scenario(maker):
+        await add_characters(maker, PEOPLE)
+        bot = Harness(maker, tmp_path)
+
+        # The operator talks freely, with no credits and no records.
+        await bot.send(callback_update("open:amy", user_id=1001))
+        await bot.send(message_update("hello", user_id=1001))
+        assert t("en", "credits_empty", cost=1, credits=0) not in bot.texts()
+        assert any(x.startswith("<b>Amy:</b>") for x in bot.texts())  # she answered
+        async with maker() as s:
+            assert (await s.execute(select(func.count()).select_from(CreditTransaction))).scalar_one() == 0
+
+        # Anyone else is stopped as usual.
+        await bot.send(callback_update("open:amy", user_id=2002, first="Bo"))
+        await bot.send(message_update("hello", user_id=2002, first="Bo"))
+        assert bot.texts()[-1] == t("en", "credits_empty", cost=1, credits=0)
 
     run_db(scenario)
