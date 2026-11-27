@@ -14,6 +14,7 @@ from aiogram.methods import (
     EditMessageMedia,
     EditMessageText,
     RefundStarPayment,
+    SendDocument,
     SendInvoice,
     SendMessage,
     SendPhoto,
@@ -57,7 +58,7 @@ class FakeSession(BaseSession):
         if isinstance(method, RefundStarPayment) and self.refund_error:
             raise TelegramBadRequest(method=method, message=self.refund_error)
 
-        if isinstance(method, (SendMessage, EditMessageText, SendPhoto, EditMessageMedia, SendInvoice)):
+        if isinstance(method, (SendMessage, EditMessageText, SendPhoto, EditMessageMedia, SendInvoice, SendDocument)):
             photo = None
             if isinstance(method, (SendPhoto, EditMessageMedia)):
                 photo = [PhotoSize(file_id="tg-file-id", file_unique_id="u", width=1, height=1)]

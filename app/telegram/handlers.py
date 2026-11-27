@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.user import User
 from app.services.telegram_user_service import TelegramUserService
+from app.services.user_export_service import UserExportService
 from app.services.user_data_service import UserDataService
 from app.services.character_gallery_service import CharacterGalleryService
 from app.services.character_removal_service import (
@@ -1257,6 +1258,16 @@ async def deletedata_command(message: Message, user: User) -> None:
     )
 
 
+async def export_command(message: Message, session: AsyncSession, user: User) -> None:
+    """/export: send the user a JSON file of everything we hold about them."""
+    language = user.language_code
+    data = await UserExportService(session).build(user)
+    await message.answer_document(
+        BufferedInputFile(data, filename="my-peligrosa-data.json"),
+        caption=t(language, "export_caption"),
+    )
+
+
 async def wipe_confirm(callback: CallbackQuery, session: AsyncSession, user: User) -> None:
     language = user.language_code
     await callback.answer()
@@ -1310,6 +1321,7 @@ def build_router() -> Router:
     router.message.register(delete_command, Command("delete"))
     router.message.register(proactive_command, Command("proactive"))
     router.message.register(deletedata_command, Command("deletedata"))
+    router.message.register(export_command, Command("export"))
     router.message.register(credits_command, Command("credits"))
     router.message.register(buy_command, Command("buy"))
     router.message.register(terms_command, Command("terms"))

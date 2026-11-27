@@ -68,7 +68,14 @@ Nothing is unlimited: a subscriber has a daily message cap.
   `app/telegram/texts.py` (`terms_text`) before going live. You are responsible
   for disputes. Test payments in Telegram's test environment first.
 
-## Privacy: /deletedata
+## Privacy: /export and /deletedata
+
+`/export` sends the user one JSON file with everything we hold about them:
+account basics, their chats with every message, what each character remembers,
+their other memory records, credit history and payments. It is built only from
+rows with their own user id. It leaves out the password hash, mood and
+relationship scores and anything about other users. Telegram limits files to
+50 MB; a normal chat history is far below that.
 
 A user can delete all their data with `/deletedata` (two steps: warning, then a
 confirm button). It removes every chat and message, the characters' memories of

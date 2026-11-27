@@ -14,6 +14,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "The characters are fictional AI personalities, and this service is for adults (18+). /terms"
         ),
         "cmd_deletedata": "Delete all my data",
+        "cmd_export": "Download my data",
+        "export_caption": "Your data: account, chats, what the characters remember, credits and payments.",
         "wipe_warning": (
             "⚠️ This deletes <b>all your chats, messages and everything the characters remember about you</b>. "
             "It cannot be undone.\n\n"
@@ -177,6 +179,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "Karakterler kurgusal yapay zekâ kişilikleridir ve bu hizmet yetişkinler (18+) içindir. /terms"
         ),
         "cmd_deletedata": "Tüm verilerimi sil",
+        "cmd_export": "Verilerimi indir",
+        "export_caption": "Verilerin: hesap, sohbetler, karakterlerin hatırladıkları, kredi ve ödemeler.",
         "wipe_warning": (
             "⚠️ Bu işlem <b>tüm sohbetlerini, mesajlarını ve karakterlerin senin hakkında hatırladığı her şeyi</b> siler. "
             "Geri alınamaz.\n\n"
