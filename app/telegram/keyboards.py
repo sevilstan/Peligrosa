@@ -17,6 +17,7 @@ from app.telegram.texts import t
 logger = logging.getLogger(__name__)
 
 GALLERY_PREFIX = "gallery:"
+PICTURES_PREFIX = "pic:"
 OPEN_PREFIX = "open:"
 NEW_PREFIX = "new:"
 CHAT_PREFIX = "chat:"
@@ -56,7 +57,16 @@ def main_menu(language: str | None) -> ReplyKeyboardMarkup:
                 KeyboardButton(text=t(language, "menu_chats")),
                 KeyboardButton(text=t(language, "menu_history")),
             ],
-            *([[KeyboardButton(text=t(language, "menu_photo"))]] if settings.IMAGES_ENABLED else []),
+            *(
+                [
+                    [
+                        KeyboardButton(text=t(language, "menu_photo")),
+                        KeyboardButton(text=t(language, "menu_pictures")),
+                    ]
+                ]
+                if settings.IMAGES_ENABLED
+                else []
+            ),
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -303,6 +313,23 @@ def photo_offer_keyboard(language: str | None) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text=t(language, "btn_img_yes"), callback_data=PHOTO_YES),
                 InlineKeyboardButton(text=t(language, "btn_img_no"), callback_data=PHOTO_NO),
+            ]
+        ]
+    )
+
+
+def pictures_keyboard(index: int, total: int, language: str | None) -> InlineKeyboardMarkup | None:
+    """‹ 2/5 › under a picture; wraps around like the character slider."""
+    if total <= 1:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="‹", callback_data=f"{PICTURES_PREFIX}{(index - 1) % total}"),
+                InlineKeyboardButton(
+                    text=t(language, "page_counter", page=index + 1, total=total), callback_data=NOOP
+                ),
+                InlineKeyboardButton(text="›", callback_data=f"{PICTURES_PREFIX}{(index + 1) % total}"),
             ]
         ]
     )

@@ -172,6 +172,12 @@ nobody gets the same picture twice. The user still pays the same credits.
 Errors that need you (key rejected, out of credit, unknown character id, low
 balance) are logged as ERROR and arrive as operator alerts.
 
+My pictures: `/gallery` (or the "My pictures" menu button) shows every picture
+the user received as a slider (‹ n/total ›, newest first, up to 200, wraps
+around). It reads the picture messages of the user's own chats, so deleting a
+chat or using `/deletedata` also removes those pictures from the gallery. If
+a file is missing from the `images` volume, that slide is skipped.
+
 ## 5. Database connections
 
 A reply keeps its database connection while the AI answers, so
