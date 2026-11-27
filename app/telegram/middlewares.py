@@ -5,6 +5,8 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.models.user_event import UserEvent
+from app.services.event_log import event_name
 from app.services.telegram_user_service import TelegramUserService
 from app.telegram.chat_utils import UserLocks
 from app.telegram.texts import all_labels
@@ -99,3 +101,29 @@ class ChatOrderMiddleware(BaseMiddleware):
 
         async with self.locks.for_user(message.from_user.id):
             return await handler(event, data)
+
+
+class EventMiddleware(BaseMiddleware):
+    """Records which command or button was used (by name, see event_log.py).
+
+    Runs after UserMiddleware. Logging must never break the bot: it uses its
+    own short session (a failed insert cannot expire the request's objects or
+    poison its transaction) and any failure is swallowed after a warning that
+    names only the error type.
+    """
+
+    def __init__(self, session_maker: async_sessionmaker[AsyncSession], known_commands: set[str]):
+        self.session_maker = session_maker
+        self.known_commands = known_commands
+
+    async def __call__(self, handler: Handler, event: Update, data: dict[str, Any]):
+        name = event_name(event, self.known_commands)
+        user = data.get("user")
+        if name is not None and user is not None:
+            try:
+                async with self.session_maker() as session:
+                    session.add(UserEvent(user_id=user.id, name=name))
+                    await session.commit()
+            except Exception as exc:
+                logger.warning("Could not record an event: %s", type(exc).__name__)
+        return await handler(event, data)

@@ -333,3 +333,15 @@ chat text. Kept after `/deletedata` (accounting, like `credit_transactions`).
 | `provider` / `model` | `VARCHAR(30)` / `VARCHAR(60)` | False / True | e.g. `xavira` / resolution |
 | `cost` | `FLOAT` | True | provider units, only when `XAVIRA_COST_PER_IMAGE` is set |
 | `created_at` | `TIMESTAMPTZ` | False | `now()`, indexed |
+
+### `user_events` (migration `f3a5c1d29e08`)
+
+What a user did, by name only (a command or a button). No message text, no
+arguments, no chat or character ids. Deleted by `/deletedata`.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `UUID` | False | primary key |
+| `user_id` | `UUID` | False | FK `users.id`, `ON DELETE CASCADE` |
+| `name` | `VARCHAR(40)` | False | e.g. `cmd_photo`, `btn_open`, `cmd_unknown` |
+| `created_at` | `TIMESTAMPTZ` | False | `now()`; indexes on (`user_id`, `created_at`) and (`name`, `created_at`) |

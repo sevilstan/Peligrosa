@@ -202,6 +202,17 @@ These pictures are never cached (each one is a new Xavira call, hence the higher
 price) and nothing is written to the logs about the text. The character must
 still have an image id and an adult `profile: age:`. They show up in the gallery.
 
+Activity log: the table `user_events` records which command or button a user
+used (for example `cmd_photo`, `btn_open`) and when. Never message text,
+arguments, character or chat ids: names come from a closed set (unknown
+commands are logged as `cmd_unknown`). It runs in its own short database
+session, so a logging error can never break a reply. `/stats` shows the most
+used actions of the last 24 hours, `/export` includes the user's own log and
+`/deletedata` removes it. `/terms` tells users about it. There is no automatic
+pruning yet: at one row per tap this stays small for a long time, but delete old
+rows (`DELETE FROM user_events WHERE created_at < now() - interval '180 days'`)
+if it ever matters.
+
 Cost ledger: every picture attempt is written to `image_generations` (user,
 character, photo or art, image-service call or cache hit, ok/refused/failed,
 provider, model, cost). No prompt or chat text is stored. Set

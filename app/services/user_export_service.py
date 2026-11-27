@@ -21,6 +21,7 @@ from app.models.credit_transaction import CreditTransaction
 from app.models.message import Message
 from app.models.star_payment import StarPayment
 from app.models.user import User
+from app.models.user_event import UserEvent
 from app.models.user_memory import UserMemory
 
 
@@ -47,6 +48,7 @@ class UserExportService:
             "other_memories": await self._user_memories(user),
             "credit_history": await self._credits(user),
             "payments": await self._payments(user),
+            "activity_log": await self._events(user),
         }
         return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
@@ -152,3 +154,11 @@ class UserExportService:
             }
             for r in rows
         ]
+
+    async def _events(self, user: User) -> list[dict]:
+        rows = (
+            await self.session.execute(
+                select(UserEvent).where(UserEvent.user_id == user.id).order_by(UserEvent.created_at)
+            )
+        ).scalars().all()
+        return [{"at": _iso(r.created_at), "action": r.name} for r in rows]

@@ -14,6 +14,7 @@ from app.models.image_cache import ImageCacheEntry
 from app.models.image_generation import ImageGeneration
 from app.models.message import Message
 from app.models.star_payment import StarPayment
+from app.models.user_event import UserEvent
 from app.models.user import User
 
 
@@ -37,6 +38,7 @@ class Stats:
     cache_hits: int  # pictures served from the cache, from the ledger
     provider_cost: float  # sum of recorded cost (0 when XAVIRA_COST_PER_IMAGE is unset)
     top_characters: tuple[tuple[str, int, float], ...] = ()  # (name, calls, cost)
+    top_actions_24h: tuple[tuple[str, int], ...] = ()  # (command or button, times)
 
 
 class StatsService:
@@ -99,7 +101,20 @@ class StatsService:
                 (await self.session.execute(select(func.coalesce(func.sum(ImageGeneration.cost), 0)))).scalar() or 0
             ),
             top_characters=await self._top_characters(called),
+            top_actions_24h=await self._top_actions(since),
         )
+
+    async def _top_actions(self, since) -> tuple[tuple[str, int], ...]:
+        rows = (
+            await self.session.execute(
+                select(UserEvent.name, func.count())
+                .where(UserEvent.created_at >= since)
+                .group_by(UserEvent.name)
+                .order_by(func.count().desc(), UserEvent.name)
+                .limit(8)
+            )
+        ).all()
+        return tuple((name, int(n)) for name, n in rows)
 
     async def _top_characters(self, called) -> tuple[tuple[str, int, float], ...]:
         rows = (
@@ -130,6 +145,7 @@ def format_stats(stats: Stats) -> str:
         f"Stars earned: {stats.paid_stars_24h}",
         f"Pictures sent: {stats.pictures_24h}",
         f"Image-service calls: {stats.provider_calls_24h}",
+        "Most used: " + (", ".join(f"{n} {c}" for n, c in stats.top_actions_24h) or "-"),
         "",
         "All time",
         f"Payments: {stats.paid_count} paid ({stats.paid_stars} Stars), {stats.refunded_count} refunded",
