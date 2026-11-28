@@ -1,4 +1,8 @@
-"""Delete my data: everything personal goes, only for that user."""
+"""Wiping a user's data is an operator tool (UserDataService), not a user command.
+
+Users can only delete a chat with a character (/delete). Credits, payments and
+other accounting records stay out of reach of that.
+"""
 
 from datetime import datetime, timedelta, timezone
 
@@ -18,6 +22,9 @@ from app.models import (
     User,
     UserMemory,
 )
+from app.services.user_data_service import UserDataService
+from app.telegram import bot as bot_module
+from app.telegram.keyboards import DELETE_CONFIRM_PREFIX
 from app.telegram.texts import t
 from tests.telegram_harness import Harness, add_characters, callback_update, message_update
 
@@ -55,25 +62,6 @@ async def chat_with(bot, text="hello there"):
     await bot.send(message_update(text))
 
 
-def test_confirmation_is_required_and_cancel_deletes_nothing(run_db, tmp_path):
-    async def scenario(maker):
-        await add_characters(maker, PEOPLE)
-        bot = Harness(maker, tmp_path)
-        await chat_with(bot)
-        before = await count(maker, Message)
-
-        await bot.send(message_update("/deletedata"))
-        assert bot.texts()[-1] == t("en", "wipe_warning")
-        assert bot.callback_data() == ["wipeok", "wipeno"]
-        assert await count(maker, Message) == before  # asking deletes nothing
-
-        await bot.send(callback_update("wipeno"))
-        assert await count(maker, Message) == before
-        assert bot.session.named("EditMessageText")[-1]["text"] == t("en", "wipe_cancelled")
-
-    run_db(scenario)
-
-
 def test_everything_personal_is_deleted(run_db, tmp_path):
     async def scenario(maker):
         await add_characters(maker, PEOPLE)
@@ -83,13 +71,11 @@ def test_everything_personal_is_deleted(run_db, tmp_path):
         await seed_state(maker, uid)
         assert await count(maker, Message) > 0
 
-        await bot.send(message_update("/deletedata"))
-        await bot.send(callback_update("wipeok"))
+        async with maker() as s:
+            await UserDataService(s).delete_all(uid)
 
         for model in (Conversation, Message, CharacterMemory, UserMemory, CharacterRelationship, CharacterEmotion):
             assert await count(maker, model) == 0, model.__name__
-        edited = bot.session.named("EditMessageText")[-1]["text"]
-        assert edited == t("en", "wipe_done", conversations=1, memories=3)
 
         # The user can simply start again.
         await chat_with(bot, "hi again")
@@ -108,14 +94,15 @@ def test_other_users_keep_everything(run_db, tmp_path):
         await seed_state(maker, await user_id(maker, 1001))
         await seed_state(maker, await user_id(maker, 2002))
         eve = await user_id(maker, 2002)
+        mine = await user_id(maker, 1001)
         eve_counts = {
             m: await count(maker, m, user_id=eve)
             for m in (CharacterMemory, UserMemory, CharacterRelationship, CharacterEmotion, Conversation)
         }
         eve_messages = await count(maker, Message)
 
-        await bot.send(message_update("/deletedata"))
-        await bot.send(callback_update("wipeok"))
+        async with maker() as s:
+            await UserDataService(s).delete_all(mine)
 
         for model, expected in eve_counts.items():
             assert await count(maker, model, user_id=eve) == expected, model.__name__
@@ -140,8 +127,8 @@ def test_account_credits_and_payments_stay(run_db, tmp_path):
             s.add(CreditTransaction(user_id=uid, amount=77, balance_after=77, reason="admin_grant"))
             await s.commit()
 
-        await bot.send(message_update("/deletedata"))
-        await bot.send(callback_update("wipeok"))
+        async with maker() as s:
+            await UserDataService(s).delete_all(uid)
 
         async with maker() as s:
             user = (await s.execute(select(User).where(User.id == uid))).scalar_one()
@@ -149,34 +136,6 @@ def test_account_credits_and_payments_stay(run_db, tmp_path):
             assert user.subscription_until is not None
         assert await count(maker, StarPayment) == 1
         assert await count(maker, CreditTransaction) == 1
-
-    run_db(scenario)
-
-
-def test_a_failed_deletion_changes_nothing_and_says_so(run_db, tmp_path, monkeypatch):
-    from app.services import user_data_service
-
-    async def scenario(maker):
-        await add_characters(maker, PEOPLE)
-        bot = Harness(maker, tmp_path)
-        await chat_with(bot)
-        before = await count(maker, Message)
-
-        original = user_data_service.UserDataService.delete_all
-
-        async def broken(self, uid):
-            await self.session.execute(
-                user_data_service.delete(CharacterMemory).where(CharacterMemory.user_id == uid)
-            )
-            raise RuntimeError("boom")
-
-        monkeypatch.setattr(user_data_service.UserDataService, "delete_all", broken)
-        await bot.send(message_update("/deletedata"))
-        await bot.send(callback_update("wipeok"))
-
-        assert bot.session.named("EditMessageText")[-1]["text"] == t("en", "wipe_failed")
-        assert await count(maker, Message) == before
-        monkeypatch.setattr(user_data_service.UserDataService, "delete_all", original)
 
     run_db(scenario)
 
@@ -214,5 +173,63 @@ def test_deletion_is_all_or_nothing(run_db, tmp_path):
 
         for model, expected in before.items():
             assert await count(maker, model) == expected, model.__name__
+
+    run_db(scenario)
+
+
+# ----------------------------------------- what users can and cannot do
+
+
+def test_users_have_no_data_wipe_or_export_command(run_db, tmp_path):
+    async def scenario(maker):
+        await add_characters(maker, PEOPLE)
+        bot = Harness(maker, tmp_path)
+        await chat_with(bot)
+        uid = await user_id(maker, 1001)
+        await seed_state(maker, uid)
+        before = await count(maker, Message)
+
+        for command in ("/deletedata", "/export"):
+            await bot.send(message_update(command))
+            assert bot.texts()[-1] == t("en", "unknown_command"), command
+        await bot.send(callback_update("wipeok"))  # an old confirm button from an earlier version
+
+        assert await count(maker, Message) == before and await count(maker, CharacterMemory) > 0
+        assert not bot.session.named("SendDocument")
+
+    run_db(scenario)
+
+
+def test_the_command_menu_does_not_list_them():
+    names = {name for name, _ in bot_module._COMMANDS}
+    assert "delete" in names  # a user can still delete a chat
+    assert not names & {"deletedata", "export"}
+
+
+def test_deleting_a_chat_never_touches_credits_or_payments(run_db, tmp_path):
+    async def scenario(maker):
+        await add_characters(maker, PEOPLE)
+        bot = Harness(maker, tmp_path)
+        await chat_with(bot)
+        uid = await user_id(maker, 1001)
+        async with maker() as s:
+            user = (await s.execute(select(User).where(User.id == uid))).scalar_one()
+            user.credits = 77
+            conversation = (await s.execute(select(Conversation))).scalars().first()
+            s.add(StarPayment(user_id=uid, telegram_charge_id="c1", product="sub", stars=400))
+            s.add(
+                CreditTransaction(
+                    user_id=uid, amount=-1, balance_after=76, reason="message", conversation_id=conversation.id
+                )
+            )
+            await s.commit()
+
+        await bot.send(callback_update(f"{DELETE_CONFIRM_PREFIX}amy"))
+
+        assert await count(maker, Conversation) == 0  # the chat is gone...
+        assert await count(maker, StarPayment) == 1  # ...the accounting records are not
+        assert await count(maker, CreditTransaction) == 1
+        async with maker() as s:
+            assert (await s.execute(select(User.credits).where(User.id == uid))).scalar_one() == 77
 
     run_db(scenario)

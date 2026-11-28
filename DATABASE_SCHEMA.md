@@ -306,7 +306,7 @@ Holds amounts and reasons only, never message text.
 
 A shared picture cache: one row per finished picture of a character in a scene.
 Holds no user data (only the character and closed-vocabulary scene tags), so
-`/deletedata` does not touch it.
+erasing a user does not touch it.
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|

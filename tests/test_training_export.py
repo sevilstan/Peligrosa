@@ -72,8 +72,8 @@ def test_deleted_users_leave_the_export_and_are_listed(run_db, tmp_path):
         await talk(bot, 2002, "Eve", "eve text")
         assert len(await export(maker)) == 2
 
-        await bot.send(message_update("/deletedata", user_id=1001))
-        await bot.send(callback_update("wipeok", user_id=1001))
+        async with maker() as s:  # an operator wipes a user's data (no user command exists)
+            await UserDataService(s).delete_all(await uid(maker, 1001))
 
         records = await export(maker)
         assert [r["messages"][0]["content"] for r in records] == ["eve text"]
@@ -144,11 +144,11 @@ def test_a_restored_backup_can_be_cleaned_again(run_db, tmp_path):
     run_db(scenario)
 
 
-def test_terms_and_warning_tell_users_about_training():
+def test_terms_tell_users_about_training_and_how_to_delete_a_chat():
+    assert "train" in t("en", "terms_text") and "eğit" in t("tr", "terms_text")
     for language in ("en", "tr"):
-        assert "/deletedata" in t(language, "terms_text")
-    assert "training" in t("en", "terms_text") and "training" in t("en", "wipe_warning")
-    assert "eğitim" in t("tr", "terms_text") and "eğitim" in t("tr", "wipe_warning").lower()
+        text = t(language, "terms_text")
+        assert "/delete" in text and "/support" in text and "/deletedata" not in text
 
 
 def test_the_deleted_mark_alone_keeps_a_user_out_of_the_export(run_db, tmp_path):

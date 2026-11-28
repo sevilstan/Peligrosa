@@ -22,7 +22,6 @@ from app.core.config import settings
 from app.models.character import Character
 from app.models.user import User
 from app.services.telegram_user_service import TelegramUserService
-from app.services.user_data_service import UserDataService
 from app.services.character_gallery_service import CharacterGalleryService
 from app.services.character_removal_service import (
     CharacterNotFoundError,
@@ -59,9 +58,6 @@ from app.telegram.keyboards import (
     PHOTO_NO,
     PHOTO_YES,
     photo_offer_keyboard,
-    WIPE_CANCEL,
-    WIPE_CONFIRM,
-    wipe_keyboard,
     BUY_ITEM_PREFIX,
     BUY_OPEN,
     buy_keyboard,
@@ -1393,35 +1389,6 @@ async def _group_text(
         await message.answer(t(language, "chat_unavailable"))
 
 
-async def deletedata_command(message: Message, user: User) -> None:
-    await message.answer(
-        t(user.language_code, "wipe_warning"), reply_markup=wipe_keyboard(user.language_code)
-    )
-
-
-async def wipe_confirm(callback: CallbackQuery, session: AsyncSession, user: User) -> None:
-    language = user.language_code
-    await callback.answer()
-    try:
-        result = await UserDataService(session).delete_all(user.id)
-    except Exception as exc:
-        logger.error("Could not delete a user's data: %s", type(exc).__name__)
-        text = t(language, "wipe_failed")
-    else:
-        # The internal id (no name) is logged so deletions can be re-applied after
-        # restoring an old backup (scripts/reapply_deletions.py).
-        logger.info("User data deleted: user_id=%s chats=%d", user.id, result.conversations)
-        text = t(
-            language, "wipe_done", conversations=result.conversations, memories=result.memories
-        )
-    await edit_text_in_place(callback, text, None)
-
-
-async def wipe_cancel(callback: CallbackQuery, user: User) -> None:
-    await callback.answer()
-    await edit_text_in_place(callback, t(user.language_code, "wipe_cancelled"), None)
-
-
 async def unknown_command(message: Message, user: User) -> None:
     await message.answer(t(user.language_code, "unknown_command"), reply_markup=main_menu(user.language_code))
 
@@ -1453,7 +1420,6 @@ def build_router() -> Router:
     router.message.register(group_command, Command("newgroup"))
     router.message.register(delete_command, Command("delete"))
     router.message.register(proactive_command, Command("proactive"))
-    router.message.register(deletedata_command, Command("deletedata"))
     router.message.register(credits_command, Command("credits"))
     router.message.register(buy_command, Command("buy"))
     router.message.register(terms_command, Command("terms"))
@@ -1500,8 +1466,6 @@ def build_router() -> Router:
     router.callback_query.register(group_cancel, F.data == GROUP_CANCEL)
     router.callback_query.register(buy_open, F.data == BUY_OPEN)
     router.callback_query.register(buy_item, F.data.startswith(BUY_ITEM_PREFIX))
-    router.callback_query.register(wipe_confirm, F.data == WIPE_CONFIRM)
-    router.callback_query.register(wipe_cancel, F.data == WIPE_CANCEL)
     router.callback_query.register(noop, F.data == NOOP)
 
     return router

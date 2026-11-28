@@ -13,17 +13,6 @@ TEXTS: dict[str, dict[str, str]] = {
             "Swipe through the characters and pick someone to talk to.\n\n"
             "The characters are fictional AI personalities, and this service is for adults (18+). /terms"
         ),
-        "cmd_deletedata": "Delete all my data",
-        "wipe_warning": (
-            "⚠️ This deletes <b>all your chats, messages and everything the characters remember about you</b>. "
-            "It cannot be undone.\n\n"
-            "Your account record, credit balance and payment history are kept (payment records may have to be "
-            "kept by law, and it prevents a new free trial). It is also removed from our training data. Continue?"
-        ),
-        "btn_wipe_confirm": "🗑 Yes, delete everything",
-        "wipe_done": "✅ Done. {conversations} chats and {memories} memories were deleted. You can start fresh any time.",
-        "wipe_cancelled": "Cancelled. Nothing was deleted.",
-        "wipe_failed": "Something went wrong and nothing was deleted. Please try again.",
         "menu_characters": "🎭 Characters",
         "menu_chats": "💬 My chats",
         "menu_history": "📜 History",
@@ -113,7 +102,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Credits are used by sending messages; a failed reply is refunded automatically.\n"
             "• Characters are fictional AI characters. You must be 18 or older.\n"
             "• Your chats may be used to improve the service and to train our models. "
-            "If you delete your data with /deletedata, we remove it from our training data and backups.\n"
+            "You can delete a chat and what its character remembers with /delete. "
+            "For any other request about your data, contact support (/support).\n"
             "• Telegram and Telegram support cannot help with purchases made in this bot. Use /paysupport.\n"
             "• Refunds are handled case by case through /paysupport."
         ),
@@ -184,17 +174,6 @@ TEXTS: dict[str, dict[str, str]] = {
             "Karakterlere göz at ve konuşmak istediğini seç.\n\n"
             "Karakterler kurgusal yapay zekâ kişilikleridir ve bu hizmet yetişkinler (18+) içindir. /terms"
         ),
-        "cmd_deletedata": "Tüm verilerimi sil",
-        "wipe_warning": (
-            "⚠️ Bu işlem <b>tüm sohbetlerini, mesajlarını ve karakterlerin senin hakkında hatırladığı her şeyi</b> siler. "
-            "Geri alınamaz.\n\n"
-            "Hesap kaydın, kredi bakiyen ve ödeme geçmişin saklanır (ödeme kayıtları yasal olarak tutulmak zorunda "
-            "olabilir, ayrıca yeni bir ücretsiz deneme alınmasını engeller). Eğitim verimizden de çıkarılır. Devam edelim mi?"
-        ),
-        "btn_wipe_confirm": "🗑 Evet, hepsini sil",
-        "wipe_done": "✅ Tamam. {conversations} sohbet ve {memories} hafıza silindi. İstediğin zaman baştan başlayabilirsin.",
-        "wipe_cancelled": "İptal edildi. Hiçbir şey silinmedi.",
-        "wipe_failed": "Bir sorun oldu ve hiçbir şey silinmedi. Lütfen tekrar dene.",
         "menu_characters": "🎭 Karakterler",
         "menu_chats": "💬 Sohbetlerim",
         "menu_history": "📜 Geçmiş",
@@ -284,7 +263,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Krediler mesaj yazarak harcanır; cevap alınamazsa kredi otomatik iade edilir.\n"
             "• Karakterler kurgusal yapay zekâ karakterleridir. 18 yaşında veya daha büyük olmalısın.\n"
             "• Sohbetlerin hizmeti geliştirmek ve modellerimizi eğitmek için kullanılabilir. "
-            "/deletedata ile verini silersen eğitim verimizden ve yedeklerimizden de çıkarırız.\n"
+            "Bir sohbeti ve karakterin bu sohbetten hatırladıklarını /delete ile silebilirsin. "
+            "Verinle ilgili diğer talepler için destekle iletişime geç (/support).\n"
             "• Telegram ve Telegram desteği bu bottaki satın almalarda yardımcı olamaz. /paysupport kullan.\n"
             "• İadeler /paysupport üzerinden tek tek değerlendirilir."
         ),

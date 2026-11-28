@@ -6,7 +6,7 @@
 Needs TRAINING_EXPORT_SALT (16+ characters, private, never changed) in .env.
 Users are pseudonymized; the chat text itself may still contain personal
 details, so keep the output protected and only on systems you control.
---deleted-pseudonyms prints everyone who used /deletedata: remove those
+--deleted-pseudonyms prints every user whose data an operator wiped: remove those
 pseudonyms from exports you made earlier.
 """
 

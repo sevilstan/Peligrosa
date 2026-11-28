@@ -37,8 +37,6 @@ PHOTO_NO = "imgn"
 HISTORY_OPEN_PREFIX = "hopen:"  # from a chat message: send history as a new message
 HISTORY_PAGE_PREFIX = "hist:"  # from the history itself: edit it in place
 NOOP = "noop"
-WIPE_CONFIRM = "wipeok"
-WIPE_CANCEL = "wipeno"
 BUY_OPEN = "buyopen"
 BUY_ITEM_PREFIX = "buyitem:"
 
@@ -298,15 +296,6 @@ def buy_prompt_keyboard(language: str | None) -> InlineKeyboardMarkup:
     """Under "your credits are used up": opens the shop."""
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=t(language, "btn_buy"), callback_data=BUY_OPEN)]]
-    )
-
-
-def wipe_keyboard(language: str | None) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t(language, "btn_wipe_confirm"), callback_data=WIPE_CONFIRM)],
-            [InlineKeyboardButton(text=t(language, "btn_cancel"), callback_data=WIPE_CANCEL)],
-        ]
     )
 
 
