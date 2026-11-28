@@ -304,6 +304,11 @@ class ImageService:
                 logger.warning("A cached picture file is missing; it is forgotten.")
                 await self.session.delete(entry)
                 continue
+            except OSError:
+                # Storage trouble is not proof the picture is gone: skip it,
+                # keep the cache entry.
+                logger.warning("A cached picture could not be read; skipped.")
+                continue
             return entry.image_key, data
         return None
 

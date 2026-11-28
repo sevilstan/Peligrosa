@@ -179,6 +179,32 @@ def test_a_missing_cached_file_is_forgotten_and_the_picture_is_made_again(run_db
     run_db(scenario)
 
 
+def test_a_storage_outage_does_not_forget_cached_pictures(run_db, tmp_path):
+    from app.services.image_storage import ImageStorageError
+
+    async def scenario(maker):
+        a, character_id, conv_a = await seed_conversation(maker)
+        b, conv_b = await another_chat(maker, character_id, "b@example.test")
+        feat = feature(tmp_path, variants=1)
+
+        first = await photo(maker, feat, a, conv_a)
+
+        real_load = feat.storage.load
+
+        async def broken(key):
+            raise ImageStorageError("storage is down")
+
+        feat.storage.load = broken
+        await photo(maker, feat, b, conv_b)  # falls back to making a new one
+        feat.storage.load = real_load
+
+        # The first picture is still in the cache: an outage is not "file gone".
+        assert await count(maker, ImageCacheEntry) == 2
+        assert (await real_load(first.key))
+
+    run_db(scenario)
+
+
 def test_a_failing_scene_writer_still_gives_a_default_picture(run_db, tmp_path):
     async def scenario(maker):
         a, character_id, conv_a = await seed_conversation(maker)

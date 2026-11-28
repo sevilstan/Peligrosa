@@ -76,7 +76,15 @@ class Settings(BaseSettings):
     XAVIRA_MAX_WAIT_SECONDS: float = 60.0
     XAVIRA_LOW_BALANCE: int = 5  # operator alert when Xavira credits fall below this
     XAVIRA_CREDITS_PER_IMAGE: float = 0.0  # Xavira credits (not money) one image uses; 0 = unknown, not recorded
+    # Where pictures are kept: "local" (the folder below) or "r2" (Cloudflare R2).
+    IMAGE_STORAGE: str = "local"
     IMAGE_STORAGE_DIR: str = "data/images"
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET: str = ""
+    R2_ENDPOINT: str = ""  # optional; default https://<account>.r2.cloudflarestorage.com
+    R2_PREFIX: str = ""  # optional folder inside the bucket
     IMAGE_CACHE_MIN_VARIANTS: int = 2  # 0 = never reuse; N = make N variants per scene, then reuse
     IMAGE_OFFER_COOLDOWN_SECONDS: int = 60  # at most one offer per chat per minute
     IMAGE_OFFER_TTL_SECONDS: int = 900  # an unanswered offer expires
