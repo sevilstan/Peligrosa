@@ -35,11 +35,14 @@ async def another_chat(maker, character_id, email):
         return user.id, conversation.id
 
 
-async def photo(maker, feat, user_id, conversation_id, chat=None, request="send a pic"):
+async def photo(maker, feat, user_id, conversation_id, chat=None, request="send a pic", deliver=True):
+    """Make a picture; by default as if Telegram delivered it (confirm_delivery)."""
     async with maker() as session:
-        return await ImageService(session, feat, chat or SceneProvider(), rng=random.Random(1)).generate(
-            conversation_id, user_id, request
-        )
+        service = ImageService(session, feat, chat or SceneProvider(), rng=random.Random(1))
+        result = await service.generate(conversation_id, user_id, request)
+        if deliver:
+            await service.confirm_delivery(result)
+        return result
 
 
 async def count(maker, model):
@@ -228,3 +231,29 @@ def test_can_draw_needs_an_image_id_and_an_adult_age(tmp_path):
     assert not can_draw(feature(tmp_path, loader=FakeLoader()), "test-char")
     assert not can_draw(feature(tmp_path, loader=FakeLoader(definition(image_id=""))), "test-char")
     assert not can_draw(feature(tmp_path, loader=FakeLoader(definition(age=None))), "test-char")
+
+
+def test_nothing_joins_the_chat_until_delivery_is_confirmed(run_db, tmp_path):
+    async def scenario(maker):
+        user_id, character_id, conv_id = await seed_conversation(maker)
+        await add_messages(maker, conv_id, user_id, character_id, 4)
+        feat = feature(tmp_path, variants=1)
+
+        made = await photo(maker, feat, user_id, conv_id, deliver=False)  # Telegram never delivered it
+        assert await count(maker, ImageCacheEntry) == 1  # the picture itself is kept for others
+        async with maker() as s:
+            assert (await s.execute(select(Message).where(Message.message_type == "image"))).first() is None
+
+        # The user never received it, so it is still fresh for them: reused, not remade.
+        again = await photo(maker, feat, user_id, conv_id, deliver=False)
+        assert again.from_cache and again.key == made.key and len(feat.provider.calls) == 1
+        async with maker() as s:
+            assert (await s.execute(select(ImageCacheEntry.use_count))).scalar_one() in (0, None)
+
+        async with maker() as session:  # now one is delivered
+            await ImageService(session, feat, SceneProvider()).confirm_delivery(again)
+        async with maker() as s:
+            assert (await s.execute(select(ImageCacheEntry.use_count))).scalar_one() == 1
+            assert len((await s.execute(select(Message).where(Message.message_type == "image"))).all()) == 1
+
+    run_db(scenario)
