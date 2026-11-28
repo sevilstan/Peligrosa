@@ -18,6 +18,17 @@ class Offer:
     conversation_id: uuid.UUID
     request_text: str | None
     created: float
+    character_slug: str | None = None  # who draws in a group
+    art_text: str | None = None  # "Create art": the user's own description
+
+
+@dataclass(frozen=True)
+class ArtAsk:
+    """The bot asked this user to describe a picture; their next reply is it."""
+
+    conversation_id: uuid.UUID
+    character_slug: str | None
+    created: float
 
 
 class PhotoOffers:
@@ -27,12 +38,34 @@ class PhotoOffers:
         self.clock = clock
         self._offers: dict[tuple[int, int], Offer] = {}
         self._last_offer: dict[uuid.UUID, float] = {}
+        self._asks: dict[uuid.UUID, ArtAsk] = {}
 
-    def add(self, chat_id: int, message_id: int, user_id, conversation_id, request_text: str | None) -> None:
+    def add(
+        self,
+        chat_id: int,
+        message_id: int,
+        user_id,
+        conversation_id,
+        request_text: str | None,
+        character_slug: str | None = None,
+        art_text: str | None = None,
+    ) -> None:
         now = self.clock()
         self._prune(now)
-        self._offers[(chat_id, message_id)] = Offer(user_id, conversation_id, request_text, now)
+        self._offers[(chat_id, message_id)] = Offer(
+            user_id, conversation_id, request_text, now, character_slug, art_text
+        )
         self._last_offer[conversation_id] = now
+
+    def ask_art(self, user_id, conversation_id, character_slug: str | None) -> None:
+        self._prune(self.clock())
+        self._asks[user_id] = ArtAsk(conversation_id, character_slug, self.clock())
+
+    def take_art_ask(self, user_id) -> ArtAsk | None:
+        ask = self._asks.pop(user_id, None)
+        if ask is not None and self.clock() - ask.created > self.ttl:
+            return None
+        return ask
 
     def get(self, chat_id: int, message_id: int) -> Offer | None:
         offer = self._offers.get((chat_id, message_id))
@@ -56,5 +89,7 @@ class PhotoOffers:
             del self._offers[key]
         while len(self._offers) >= MAX_OFFERS:
             del self._offers[next(iter(self._offers))]
+        for user_id in [u for u, a in self._asks.items() if now - a.created > self.ttl]:
+            del self._asks[user_id]
         for conversation_id in [c for c, ts in self._last_offer.items() if now - ts > self.ttl]:
             del self._last_offer[conversation_id]

@@ -1,4 +1,4 @@
-"""Delete again the data of users who used /deletedata, after restoring a backup.
+"""Delete again the data of users whose data was wiped by an operator, after restoring a backup.
 
     python -m scripts.reapply_deletions deleted_users.txt
 

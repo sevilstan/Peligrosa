@@ -32,11 +32,11 @@ _COMMANDS = (
     ("chats", "cmd_chats"),
     ("history", "cmd_history"),
     ("new", "cmd_new"),
+    ("rename", "cmd_rename"),
     ("name", "cmd_name"),
     ("newgroup", "cmd_newgroup"),
     ("delete", "cmd_delete"),
     ("proactive", "cmd_proactive"),
-    ("deletedata", "cmd_deletedata"),
     ("credits", "cmd_credits"),
     ("buy", "cmd_buy"),
     ("terms", "cmd_terms"),
@@ -198,6 +198,7 @@ async def set_commands(bot: Bot) -> None:
             ]
             if settings.IMAGES_ENABLED:
                 commands.append(BotCommand(command="photo", description=t(language, "cmd_photo")))
+                commands.append(BotCommand(command="art", description=t(language, "cmd_art")))
                 commands.append(BotCommand(command="gallery", description=t(language, "cmd_pictures")))
             await bot.set_my_commands(
                 commands, language_code=None if language == "en" else language

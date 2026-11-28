@@ -13,22 +13,20 @@ TEXTS: dict[str, dict[str, str]] = {
             "Swipe through the characters and pick someone to talk to.\n\n"
             "The characters are fictional AI personalities, and this service is for adults (18+). /terms"
         ),
-        "cmd_deletedata": "Delete all my data",
-        "wipe_warning": (
-            "⚠️ This deletes <b>all your chats, messages and everything the characters remember about you</b>. "
-            "It cannot be undone.\n\n"
-            "Your account record, credit balance and payment history are kept (payment records may have to be "
-            "kept by law, and it prevents a new free trial). It is also removed from our training data. Continue?"
-        ),
-        "btn_wipe_confirm": "🗑 Yes, delete everything",
-        "wipe_done": "✅ Done. {conversations} chats and {memories} memories were deleted. You can start fresh any time.",
-        "wipe_cancelled": "Cancelled. Nothing was deleted.",
-        "wipe_failed": "Something went wrong and nothing was deleted. Please try again.",
         "menu_characters": "🎭 Characters",
         "menu_chats": "💬 My chats",
         "menu_history": "📜 History",
         "menu_photo": "📷 Request photo",
         "menu_pictures": "🖼 My pictures",
+        "menu_art": "🎨 Create art",
+        "cmd_art": "Describe a picture and have your character make it",
+        "art_ask": "🎨 Describe the picture you want (a reply to this message works).",
+        "art_offer": "🎨 {name} will make this for you. It costs {cost} credits. Go ahead?",
+        "art_offer_free": "🎨 {name} will make this for you. Go ahead?",
+        "art_invalid": "I could not read a description. Try /art again.",
+        "img_pick": "📷 Who should send the photo?",
+        "art_pick": "🎨 Who should make it?",
+        "img_pick_none": "Nobody in this chat can send pictures.",
         "cmd_pictures": "See the pictures you received",
         "pic_empty": "You have no pictures yet. Use the photo button in a chat to ask for one.",
         "pic_caption": "{name} · {date} · {page}/{total}",
@@ -43,7 +41,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "img_unavailable": "{name} can't send photos.",
         "img_off": "Photos are not available right now.",
         "img_no_chat": "Pick a character first, then ask for a photo.",
-        "img_group": "Photos work in personal chats only.",
         "img_failed": "The photo could not be made right now. Your credits were returned. Try again in a moment.",
         "img_refused": "{name} can't send that one. Your credits were returned. Try asking for something else.",
         "gallery_empty": "There are no characters available right now. Please check back soon.",
@@ -105,7 +102,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Credits are used by sending messages; a failed reply is refunded automatically.\n"
             "• Characters are fictional AI characters. You must be 18 or older.\n"
             "• Your chats may be used to improve the service and to train our models. "
-            "If you delete your data with /deletedata, we remove it from our training data and backups.\n"
+            "You can delete a chat and what its character remembers with /delete. "
+            "For any other request about your data, contact support (/support).\n"
             "• Telegram and Telegram support cannot help with purchases made in this bot. Use /paysupport.\n"
             "• Refunds are handled case by case through /paysupport."
         ),
@@ -168,6 +166,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "cmd_characters": "Browse characters",
         "cmd_chats": "My chats",
         "cmd_new": "New chat with the current character",
+        "cmd_rename": "Rename the current chat",
+        "rename_usage": "Send the new name after the command, e.g. <code>/rename Movie night</code>. Use <code>/rename -</code> to remove it.",
+        "rename_saved": "Chat renamed: <b>{name}</b>",
+        "rename_cleared": "The chat name was removed.",
+        "rename_invalid": "That name is not usable. Try a short plain name (up to 40 characters).",
         "cmd_name": "Change your name",
     },
     "tr": {
@@ -176,22 +179,20 @@ TEXTS: dict[str, dict[str, str]] = {
             "Karakterlere göz at ve konuşmak istediğini seç.\n\n"
             "Karakterler kurgusal yapay zekâ kişilikleridir ve bu hizmet yetişkinler (18+) içindir. /terms"
         ),
-        "cmd_deletedata": "Tüm verilerimi sil",
-        "wipe_warning": (
-            "⚠️ Bu işlem <b>tüm sohbetlerini, mesajlarını ve karakterlerin senin hakkında hatırladığı her şeyi</b> siler. "
-            "Geri alınamaz.\n\n"
-            "Hesap kaydın, kredi bakiyen ve ödeme geçmişin saklanır (ödeme kayıtları yasal olarak tutulmak zorunda "
-            "olabilir, ayrıca yeni bir ücretsiz deneme alınmasını engeller). Eğitim verimizden de çıkarılır. Devam edelim mi?"
-        ),
-        "btn_wipe_confirm": "🗑 Evet, hepsini sil",
-        "wipe_done": "✅ Tamam. {conversations} sohbet ve {memories} hafıza silindi. İstediğin zaman baştan başlayabilirsin.",
-        "wipe_cancelled": "İptal edildi. Hiçbir şey silinmedi.",
-        "wipe_failed": "Bir sorun oldu ve hiçbir şey silinmedi. Lütfen tekrar dene.",
         "menu_characters": "🎭 Karakterler",
         "menu_chats": "💬 Sohbetlerim",
         "menu_history": "📜 Geçmiş",
         "menu_photo": "📷 Fotoğraf iste",
         "menu_pictures": "🖼 Galerim",
+        "menu_art": "🎨 Resim yaptır",
+        "cmd_art": "Bir resmi tarif et, karakterin yapsın",
+        "art_ask": "🎨 İstediğin resmi anlat (bu mesaja yanıt vermen yeterli).",
+        "art_offer": "🎨 {name} bunu senin için yapacak. Bedeli {cost} kredi. Devam edelim mi?",
+        "art_offer_free": "🎨 {name} bunu senin için yapacak. Devam edelim mi?",
+        "art_invalid": "Bir tarif okuyamadım. /art ile tekrar dene.",
+        "img_pick": "📷 Fotoğrafı kim göndersin?",
+        "art_pick": "🎨 Kim yapsın?",
+        "img_pick_none": "Bu sohbette resim gönderebilecek kimse yok.",
         "cmd_pictures": "Aldığın fotoğrafları gör",
         "pic_empty": "Henüz fotoğrafın yok. Bir sohbette fotoğraf butonuyla isteyebilirsin.",
         "pic_caption": "{name} · {date} · {page}/{total}",
@@ -206,7 +207,6 @@ TEXTS: dict[str, dict[str, str]] = {
         "img_unavailable": "{name} fotoğraf gönderemiyor.",
         "img_off": "Fotoğraflar şu an kullanılamıyor.",
         "img_no_chat": "Önce bir karakter seç, sonra fotoğraf isteyebilirsin.",
-        "img_group": "Fotoğraf sadece birebir sohbetlerde var.",
         "img_failed": "Fotoğraf şu an hazırlanamadı. Kredin iade edildi. Biraz sonra tekrar dene.",
         "img_refused": "{name} bunu gönderemiyor. Kredin iade edildi. Başka bir şey iste.",
         "gallery_empty": "Şu anda gösterilecek karakter yok. Lütfen biraz sonra tekrar bak.",
@@ -268,7 +268,8 @@ TEXTS: dict[str, dict[str, str]] = {
             "• Krediler mesaj yazarak harcanır; cevap alınamazsa kredi otomatik iade edilir.\n"
             "• Karakterler kurgusal yapay zekâ karakterleridir. 18 yaşında veya daha büyük olmalısın.\n"
             "• Sohbetlerin hizmeti geliştirmek ve modellerimizi eğitmek için kullanılabilir. "
-            "/deletedata ile verini silersen eğitim verimizden ve yedeklerimizden de çıkarırız.\n"
+            "Bir sohbeti ve karakterin bu sohbetten hatırladıklarını /delete ile silebilirsin. "
+            "Verinle ilgili diğer talepler için destekle iletişime geç (/support).\n"
             "• Telegram ve Telegram desteği bu bottaki satın almalarda yardımcı olamaz. /paysupport kullan.\n"
             "• İadeler /paysupport üzerinden tek tek değerlendirilir."
         ),
@@ -329,6 +330,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "cmd_characters": "Karakterlere göz at",
         "cmd_chats": "Sohbetlerim",
         "cmd_new": "Mevcut karakterle yeni sohbet",
+        "cmd_rename": "Bu sohbeti yeniden adlandır",
+        "rename_usage": "Komuttan sonra yeni adı yaz, örn. <code>/rename Film gecesi</code>. Adı kaldırmak için <code>/rename -</code>.",
+        "rename_saved": "Sohbet yeniden adlandırıldı: <b>{name}</b>",
+        "rename_cleared": "Sohbet adı kaldırıldı.",
+        "rename_invalid": "Bu ad kullanılamıyor. Kısa, düz bir ad dene (en fazla 40 karakter).",
         "cmd_name": "Adını değiştir",
     },
 }

@@ -5,7 +5,10 @@ drawable -> the chat AI turns the recent chat into a few scene TAGS (untrusted
 text; only known words survive, see image_scene) -> look in the cache for a
 picture of this character with the same tags that this user has not received
 yet -> otherwise ask the image provider (costs real money), store the picture
-and remember it for the next user -> save a character message with the key.
+and remember it for the next user. The character message that puts the picture
+into the chat history (and the gallery) is only saved by confirm_delivery(),
+after Telegram has really delivered it; a cached picture also only counts as
+reused then.
 
 Reuse keeps the picture variety honest: a scene gets IMAGE_CACHE_MIN_VARIANTS
 different pictures before any is reused, and a user never gets the same
@@ -14,18 +17,22 @@ picture twice.
 
 import logging
 import random
+import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
+from sqlalchemy.orm import selectinload
 
 from app.models.conversation import Conversation
+from app.models.conversation_participant import ConversationParticipant
 from app.models.image_cache import ImageCacheEntry
+from app.models.image_generation import ImageGeneration
+from app.core.config import settings
 from app.models.message import Message
-from app.providers.image_base import ImageProvider, image_extension
+from app.providers.image_base import ImageGenerationRefused, ImageProvider, image_extension
 from app.services.character_definition_loader import CharacterDefinitionLoader
-from app.services.conversation_service import ConversationService
 from app.services.image_prompt_builder import ImageNotAvailable
-from app.services.image_scene import SCENE_PROMPT, SceneTags, parse_scene
+from app.services.image_scene import SCENE_PROMPT, SceneTags, clean_art_text, parse_scene
 from app.services.image_storage import ImageStorage
 
 logger = logging.getLogger(__name__)
@@ -51,6 +58,9 @@ class PhotoResult:
     data: bytes
     character_name: str
     from_cache: bool
+    conversation_id: object = None
+    character_id: object = None
+    ledger_id: object = None  # this attempt's row in image_generations
 
 
 def can_draw(feature: ImageFeature | None, slug: str) -> bool:
@@ -76,43 +86,173 @@ class ImageService:
         self.chat_provider = chat_provider
         self.rng = rng or random.Random()
 
-    async def generate(self, conversation_id, user_id, request_text: str | None) -> PhotoResult:
-        """May raise ValueError (not the user's direct chat), ImageNotAvailable,
-        or the provider's ImageGenerationError / ImageGenerationRefused."""
-        conversation, character = await ConversationService(
-            self.session, ai_provider=self.chat_provider
-        ).get_direct_conversation(conversation_id, user_id)
+    async def _conversation_and_character(self, conversation_id, user_id, character_slug):
+        """The user's own chat and who draws: the one character of a direct
+        chat, or (in a group) the member the user picked. Else ValueError."""
+        conversation = (
+            await self.session.execute(
+                select(Conversation)
+                .options(
+                    selectinload(Conversation.participants).selectinload(ConversationParticipant.character)
+                )
+                .where(Conversation.id == conversation_id, Conversation.user_id == user_id)
+            )
+        ).scalar_one_or_none()
+        if conversation is None:
+            raise ValueError("Conversation not found.")
+        members = [p.character for p in conversation.participants]
+        if len(members) == 1:
+            return conversation, members[0]
+        for member in members:
+            if member.slug == character_slug:
+                return conversation, member
+        raise ValueError("Pick one of the characters in this chat.")
+
+    async def generate(
+        self,
+        conversation_id,
+        user_id,
+        request_text: str | None,
+        character_slug: str | None = None,
+        art_text: str | None = None,
+    ) -> PhotoResult:
+        """A picture in the user's own chat (direct, or a group member by slug).
+
+        art_text is the user's own description ("Create art"): it goes to the
+        image service as written (cleaned), is never cached and needs no scene
+        tags. Otherwise the scene comes from the chat as tags (cacheable).
+
+        May raise ValueError, ImageNotAvailable, or the provider's
+        ImageGenerationError / ImageGenerationRefused."""
+        conversation, character = await self._conversation_and_character(
+            conversation_id, user_id, character_slug
+        )
 
         definition = self.feature.loader.load(character.slug)
         if definition is None or not definition.image_character_id:
             raise ImageNotAvailable(character.slug)
+        if not can_draw(self.feature, character.slug):
+            raise ImageNotAvailable(character.slug)
 
+        art = clean_art_text(art_text)
+        if art_text is not None and art is None:
+            raise ValueError("Empty picture description.")
+
+        if art is not None:
+            data, ledger_id = await self._call_provider(art, definition, character, user_id, "art")
+            key = await self.feature.storage.save(data, image_extension(data) or "png")
+            from_cache = False
+        else:
+            key, data, from_cache, ledger_id = await self._scene_picture(
+                conversation, character, definition, user_id, request_text
+            )
+
+        # Keeps the new cache entry (and forgotten ones); the chat message waits
+        # for confirm_delivery().
+        await self.session.commit()
+        return PhotoResult(
+            key=key,
+            data=data,
+            character_name=definition.name,
+            from_cache=from_cache,
+            conversation_id=conversation.id,
+            character_id=character.id,
+            ledger_id=ledger_id,
+        )
+
+    async def confirm_delivery(self, photo: PhotoResult) -> None:
+        """Call once Telegram has delivered the picture: it now belongs to the
+        chat history (and so to the user's gallery) and, if it came from the
+        cache, counts as reused. Calling it again for the same picture does
+        nothing."""
+        if not await self._set_delivery(photo, "delivered", image_key=photo.key):
+            return
+        self.session.add(
+            Message(
+                conversation_id=photo.conversation_id,
+                sender_type="character",
+                sender_character_id=photo.character_id,
+                content=HISTORY_TEXT,
+                message_type="image",
+                image_key=photo.key,
+            )
+        )
+        if photo.from_cache:
+            await self.session.execute(
+                update(ImageCacheEntry)
+                .where(ImageCacheEntry.character_id == photo.character_id, ImageCacheEntry.image_key == photo.key)
+                .values(use_count=func.coalesce(ImageCacheEntry.use_count, 0) + 1)
+            )
+        await self.session.commit()
+
+    async def mark_delivery_failed(self, photo: PhotoResult) -> None:
+        """The picture was made (and paid for) but Telegram did not deliver it.
+        Only the delivery column changes: the provider credits stay recorded."""
+        await self._set_delivery(photo, "failed")
+        await self.session.commit()
+
+    async def _set_delivery(self, photo: PhotoResult, status: str, image_key: str | None = None) -> bool:
+        """Update this attempt's one ledger row. Only a pending row changes, so
+        calling this twice neither duplicates nor overwrites anything. Returns
+        False when the row was already settled."""
+        if photo.ledger_id is None:
+            return True
+        result = await self.session.execute(
+            update(ImageGeneration)
+            .where(ImageGeneration.id == photo.ledger_id, ImageGeneration.delivery == "pending")
+            .values(delivery=status, image_key=image_key)
+        )
+        return result.rowcount > 0
+
+    async def _scene_picture(self, conversation, character, definition, user_id, request_text):
         tags = await self._tags(conversation.id, request_text)
 
         reused = await self._from_cache(character.id, tags, user_id)
         if reused is not None:
             key, data = reused
             from_cache = True
+            ledger_id = await self._log(user_id, character, "photo", "cache", "ok")
         else:
-            data = await self.feature.provider.generate_image(
-                tags.prompt(), character_ref=definition.image_character_id
-            )
+            data, ledger_id = await self._call_provider(tags.prompt(), definition, character, user_id, "photo")
             key = await self.feature.storage.save(data, image_extension(data) or "png")
             self.session.add(ImageCacheEntry(character_id=character.id, scene_key=tags.key, image_key=key))
             from_cache = False
+        return key, data, from_cache, ledger_id
 
-        self.session.add(
-            Message(
-                conversation_id=conversation.id,
-                sender_type="character",
-                sender_character_id=character.id,
-                content=HISTORY_TEXT,
-                message_type="image",
-                image_key=key,
+    async def _call_provider(self, prompt, definition, character, user_id, kind):
+        """The one place that uses image-service credits; every attempt gets one
+        ledger row, including refusals and failures. Returns (bytes, ledger id)."""
+        try:
+            data = await self.feature.provider.generate_image(
+                prompt, character_ref=definition.image_character_id
             )
+        except ImageGenerationRefused:
+            await self._log(user_id, character, kind, "provider", "refused")
+            raise
+        except Exception:
+            await self._log(user_id, character, kind, "provider", "failed")
+            raise
+        return data, await self._log(user_id, character, kind, "provider", "ok")
+
+    async def _log(self, user_id, character, kind, source, status) -> uuid.UUID:
+        """Write this attempt's ledger row; the credits are recorded right away,
+        whatever happens to the delivery later."""
+        provider = self.feature.provider
+        credits = settings.XAVIRA_CREDITS_PER_IMAGE
+        row = ImageGeneration(
+            user_id=user_id,
+            character_id=character.id,
+            kind=kind,
+            source=source,
+            status=status,
+            delivery="pending" if status == "ok" else None,
+            provider=getattr(provider, "name", "unknown"),
+            model=getattr(provider, "model", None),
+            provider_credits=credits if source == "provider" and status == "ok" and credits > 0 else None,
         )
+        self.session.add(row)
         await self.session.commit()
-        return PhotoResult(key=key, data=data, character_name=definition.name, from_cache=from_cache)
+        return row.id
 
     async def _from_cache(self, character_id, tags: SceneTags, user_id):
         """(key, bytes) of a stored picture this user has not got yet, or None."""
@@ -131,14 +271,25 @@ class ImageService:
         if len(entries) < wanted:
             return None  # first make enough different pictures of this scene
 
+        keys = [e.image_key for e in entries]
+        # What this user already received: the chat history (older pictures) and
+        # the ledger of delivered pictures, which outlives a deleted chat.
         seen = set(
             (
                 await self.session.execute(
                     select(Message.image_key)
                     .join(Conversation, Conversation.id == Message.conversation_id)
-                    .where(
-                        Conversation.user_id == user_id,
-                        Message.image_key.in_([e.image_key for e in entries]),
+                    .where(Conversation.user_id == user_id, Message.image_key.in_(keys))
+                )
+            ).scalars()
+        )
+        seen |= set(
+            (
+                await self.session.execute(
+                    select(ImageGeneration.image_key).where(
+                        ImageGeneration.user_id == user_id,
+                        ImageGeneration.delivery == "delivered",
+                        ImageGeneration.image_key.in_(keys),
                     )
                 )
             ).scalars()
@@ -158,7 +309,6 @@ class ImageService:
                 # keep the cache entry.
                 logger.warning("A cached picture could not be read; skipped.")
                 continue
-            entry.use_count = (entry.use_count or 0) + 1
             return entry.image_key, data
         return None
 

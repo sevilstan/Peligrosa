@@ -306,7 +306,7 @@ Holds amounts and reasons only, never message text.
 
 A shared picture cache: one row per finished picture of a character in a scene.
 Holds no user data (only the character and closed-vocabulary scene tags), so
-`/deletedata` does not touch it.
+erasing a user does not touch it.
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
@@ -316,3 +316,22 @@ Holds no user data (only the character and closed-vocabulary scene tags), so
 | `image_key` | `VARCHAR(80)` | False | file name in the image storage folder |
 | `use_count` | `INTEGER` | False | how often it was reused instead of making a new one |
 | `created_at` | `TIMESTAMPTZ` | False | `now()` |
+
+### `image_generations` (migration `e29a4b0c8d97`)
+
+Ledger: one row per attempt to give a user a picture (updated, never duplicated).
+No prompt and no chat text. Accounting data, like `credit_transactions`.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | `UUID` | False | primary key |
+| `user_id` | `UUID` | True | FK `users.id`, `ON DELETE SET NULL` |
+| `character_id` | `UUID` | True | FK `characters.id`, `ON DELETE SET NULL`, indexed |
+| `kind` | `VARCHAR(10)` | False | `photo` or `art` |
+| `source` | `VARCHAR(10)` | False | `provider` (a paid call) or `cache` |
+| `status` | `VARCHAR(10)` | False | generation: `ok`, `refused`, `failed` |
+| `delivery` | `VARCHAR(10)` | True | NULL (nothing made), `pending`, `delivered`, `failed` (Telegram) |
+| `image_key` | `VARCHAR(120)` | True | stored picture's file key, set once delivered; indexed with `user_id` (who received which picture) |
+| `provider` / `model` | `VARCHAR(30)` / `VARCHAR(60)` | False / True | e.g. `xavira` / resolution |
+| `provider_credits` | `FLOAT` | True | Xavira credits (provider unit, not money); successful provider generations only, when `XAVIRA_CREDITS_PER_IMAGE` is set |
+| `created_at` | `TIMESTAMPTZ` | False | `now()`, indexed |

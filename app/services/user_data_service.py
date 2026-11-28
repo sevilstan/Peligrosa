@@ -15,6 +15,7 @@ all happens in one transaction.
 
 from dataclasses import dataclass
 
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -28,6 +29,8 @@ from app.models.character_relationship import CharacterRelationship
 from app.models.conversation import Conversation
 from app.models.user import User
 from app.models.user_memory import UserMemory
+
+logger = logging.getLogger(__name__)
 
 
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
@@ -82,6 +85,9 @@ class UserDataService:
             await self.session.rollback()
             raise
 
+        # The internal id (no name) is logged so an operator can re-apply the
+        # deletion after restoring an old backup (scripts/reapply_deletions.py).
+        logger.info("User data deleted: user_id=%s chats=%d", user_id, conversations.rowcount or 0)
         return DeletionResult(
             conversations=conversations.rowcount or 0,
             memories=(character_memories.rowcount or 0) + (user_memories.rowcount or 0),

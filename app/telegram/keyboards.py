@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 GALLERY_PREFIX = "gallery:"
 PICTURES_PREFIX = "pic:"
+PHOTO_PICK_PREFIX = "imgp:"  # group: who should send the photo
+ART_PICK_PREFIX = "imga:"  # group: who should draw the art
 OPEN_PREFIX = "open:"
 NEW_PREFIX = "new:"
 CHAT_PREFIX = "chat:"
@@ -35,8 +37,6 @@ PHOTO_NO = "imgn"
 HISTORY_OPEN_PREFIX = "hopen:"  # from a chat message: send history as a new message
 HISTORY_PAGE_PREFIX = "hist:"  # from the history itself: edit it in place
 NOOP = "noop"
-WIPE_CONFIRM = "wipeok"
-WIPE_CANCEL = "wipeno"
 BUY_OPEN = "buyopen"
 BUY_ITEM_PREFIX = "buyitem:"
 
@@ -61,6 +61,7 @@ def main_menu(language: str | None) -> ReplyKeyboardMarkup:
                 [
                     [
                         KeyboardButton(text=t(language, "menu_photo")),
+                        KeyboardButton(text=t(language, "menu_art")),
                         KeyboardButton(text=t(language, "menu_pictures")),
                     ]
                 ]
@@ -200,7 +201,7 @@ def chats_keyboard(page: ChatListPage, language: str | None) -> InlineKeyboardMa
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"{marker}{icon}{chat.name} · {date}".strip(" ·"),
+                    text=f"{marker}{icon}{chat.label} · {date}".strip(" ·"),
                     callback_data=f"{CHAT_PREFIX}{chat.conversation_id}",
                 )
             ]
@@ -298,15 +299,6 @@ def buy_prompt_keyboard(language: str | None) -> InlineKeyboardMarkup:
     )
 
 
-def wipe_keyboard(language: str | None) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=t(language, "btn_wipe_confirm"), callback_data=WIPE_CONFIRM)],
-            [InlineKeyboardButton(text=t(language, "btn_cancel"), callback_data=WIPE_CANCEL)],
-        ]
-    )
-
-
 def photo_offer_keyboard(language: str | None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -333,3 +325,13 @@ def pictures_keyboard(index: int, total: int, language: str | None) -> InlineKey
             ]
         ]
     )
+
+
+def character_pick_keyboard(prefix: str, characters, language: str | None) -> InlineKeyboardMarkup:
+    """One button per character that can be drawn (group chats)."""
+    rows = []
+    for character in characters:
+        data = f"{prefix}{character.slug}"
+        if _fits(data):
+            rows.append([InlineKeyboardButton(text=character.name, callback_data=data)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

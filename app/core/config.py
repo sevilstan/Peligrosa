@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     GROUP_MESSAGE_COST: int = 2
     GROUP_CREATE_COST: int = 50
     IMAGE_COST: int = 5
+    ART_COST: int = 10  # "Create art": a free-text picture is never cached, so it costs more
 
     # Pictures in chats (Xavira). Off until IMAGES_ENABLED=true and a key is set.
     IMAGES_ENABLED: bool = False
@@ -74,6 +75,7 @@ class Settings(BaseSettings):
     XAVIRA_RESOLUTION: str = "hd_portrait"  # sd_portrait is faster, same credit cost
     XAVIRA_MAX_WAIT_SECONDS: float = 60.0
     XAVIRA_LOW_BALANCE: int = 5  # operator alert when Xavira credits fall below this
+    XAVIRA_CREDITS_PER_IMAGE: float = 0.0  # Xavira credits (not money) one image uses; 0 = unknown, not recorded
     # Where pictures are kept: "local" (the folder below) or "r2" (Cloudflare R2).
     IMAGE_STORAGE: str = "local"
     IMAGE_STORAGE_DIR: str = "data/images"

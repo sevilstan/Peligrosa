@@ -68,25 +68,33 @@ Nothing is unlimited: a subscriber has a daily message cap.
   `app/telegram/texts.py` (`terms_text`) before going live. You are responsible
   for disputes. Test payments in Telegram's test environment first.
 
-## Privacy: /deletedata
+## Privacy: what users can delete
 
-A user can delete all their data with `/deletedata` (two steps: warning, then a
-confirm button). It removes every chat and message, the characters' memories of
-the user, the user's own memory records, and the relationship/mood data. It
-keeps the account row (Telegram id, credit balance, subscription end) and the
-credit/payment records: payment records may have to be kept by law, and
-keeping the row stops a deleted account from taking a new free trial. The user
-is told this before confirming. Backups taken earlier still contain the old
-data until they expire: set a backup retention period and say so in your
-privacy policy. Data export is not implemented yet.
+Users do **not** have a "delete all my data" or "download my data" command.
+They can delete a chat with a character (`/delete`): that removes the chat, its
+messages and what that character remembers about them, and nothing else.
+Credits, payments, the credit history, the image ledger and the account row
+(Telegram id, credit balance, subscription end) are accounting records and are
+out of reach of that: payment records may have to be kept by law, and keeping
+the row stops a deleted account from taking a new free trial.
+
+Other requests about a user's data (erasure, a copy) go through support
+(`SUPPORT_CONTACT`, `/support`) and are handled by the operator. The operator
+tool for erasure is `UserDataService.delete_all` (every chat and message, the
+characters' memories of the user, the user's own memory records, relationship
+and mood data; it keeps the account row and the accounting records, and logs
+`User data deleted: user_id=...`). A full data export is planned as an
+admin-only feature of a future admin panel. Backups taken earlier still contain
+old data until they expire: set a backup retention period and say so in your
+privacy policy. Have the terms (`terms_text`) reviewed before going live.
 
 ### Training data and backups
 
-Chats may be used to train models (the terms say so, and say that deleting
-removes the data from training data and backups). To keep that promise:
+Chats may be used to train models (the terms say so). A deleted chat is gone
+from the database and so from new exports; to keep that true:
 
 - Build datasets only with `python -m scripts.export_training_data --out
-  file.jsonl`: it skips users who used `/deletedata` (and deactivated users)
+  file.jsonl`: it skips users whose data an operator wiped (and deactivated users)
   and replaces user ids with pseudonyms (needs `TRAINING_EXPORT_SALT`). Chat
   text can still contain personal details: protect exports like personal data.
 - Before each new training run, run `--deleted-pseudonyms` and remove those
@@ -183,10 +191,45 @@ nobody gets the same picture twice. The user still pays the same credits.
 Errors that need you (key rejected, out of credit, unknown character id, low
 balance) are logged as ERROR and arrive as operator alerts.
 
+Groups: `/photo` in a group asks "who should send it?" (only members that can be
+drawn are listed); the chosen member sends the picture, same price and cache.
+
+Create art: `/art` (or the "Create art" button) asks the user to describe a
+picture; they reply with text and are offered it for `ART_COST` credits
+(default 10). The text goes to Xavira as written, only cleaned (control
+characters removed, at most 300 characters). No word filter on our side:
+content moderation is Xavira's job, and a refused picture returns the credits.
+These pictures are never cached (each one is a new Xavira call, hence the higher
+price) and nothing is written to the logs about the text. The character must
+still have an image id and an adult `profile: age:`. They show up in the gallery.
+
+Image ledger: every picture attempt is one row in `image_generations`
+(updated, never duplicated). Generation and delivery are separate facts:
+generation is ok / refused / failed (and whether it was a real Xavira call or a
+cached picture); delivery is pending / delivered / failed and only exists when
+a picture was made. A picture that was paid for at Xavira but not delivered by
+Telegram keeps its recorded Xavira credits, and a cache reuse only counts after
+delivery. Amounts are **Xavira credits, the provider's own unit, not money**:
+set `XAVIRA_CREDITS_PER_IMAGE` to what one successful picture uses (0 = not
+recorded; refused and failed calls are assumed to use none, so check this
+against Xavira's billing). `/stats` shows calls, refused/failed, made but not
+delivered, delivered cache hits, Xavira credits used and the characters with
+the most calls. A delivered row also keeps the picture's file key: that is the record of which user
+already received which picture, so the cache never gives someone the same
+picture twice, even after they deleted the chat that held it (an undelivered
+picture does not count). No prompt or chat text is stored. The ledger is accounting data
+and is not removed by users.
+
+Delivery: a picture is added to the chat history (and the gallery) only after
+Telegram has delivered it. If delivery fails, nothing is saved, the credits are
+refunded once and a cached picture is not counted as used. If the photo was
+delivered but saving it fails, the user keeps it, nothing is refunded and an
+ERROR is logged (operator alert).
+
 My pictures: `/gallery` (or the "My pictures" menu button) shows every picture
 the user received as a slider (‹ n/total ›, newest first, up to 200, wraps
 around). It reads the picture messages of the user's own chats, so deleting a
-chat or using `/deletedata` also removes those pictures from the gallery. If
+chat also removes those pictures from the gallery. If
 a file is missing from the `images` volume, that slide is skipped.
 
 ### Pictures in Cloudflare R2 (instead of the local folder)
@@ -243,7 +286,7 @@ Files are readable by their owner only: they contain users' chats.
 - **Copy backups off the server** (another machine or object storage such as
   R2/B2, e.g. with `rclone`); a backup on the same disk dies with the disk.
 - **Restore** into an EMPTY database, then re-apply deletions made after the
-  backup was taken (users who used `/deletedata` must not come back):
+  backup was taken (users whose data was wiped must not come back):
 
   ```bash
   gunzip -c /srv/backups/peligrosa-<time>.sql.gz | docker compose exec -T db psql -U peligrosa peligrosa

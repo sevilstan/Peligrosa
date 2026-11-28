@@ -1,6 +1,6 @@
 """Build a training dataset from chats, without anyone who deleted their data.
 
-- Only active users who have NOT used /deletedata are included.
+- Only active users whose data has NOT been wiped by an operator are included.
 - Users are pseudonymized (HMAC of the internal id with a private salt): no
   Telegram id, name or username is ever exported. Chat text itself can still
   contain personal details, so treat exports as personal data.

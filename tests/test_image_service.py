@@ -5,7 +5,7 @@ import random
 import pytest
 from sqlalchemy import func, select
 
-from app.models import Character, Conversation, ImageCacheEntry, Message, User
+from app.models import Character, Conversation, ImageCacheEntry, ImageGeneration, Message, User
 from app.providers.image_base import ImageGenerationError
 from app.services.conversation_service import ConversationService
 from app.services.image_prompt_builder import ImageNotAvailable
@@ -35,11 +35,14 @@ async def another_chat(maker, character_id, email):
         return user.id, conversation.id
 
 
-async def photo(maker, feat, user_id, conversation_id, chat=None, request="send a pic"):
+async def photo(maker, feat, user_id, conversation_id, chat=None, request="send a pic", deliver=True):
+    """Make a picture; by default as if Telegram delivered it (confirm_delivery)."""
     async with maker() as session:
-        return await ImageService(session, feat, chat or SceneProvider(), rng=random.Random(1)).generate(
-            conversation_id, user_id, request
-        )
+        service = ImageService(session, feat, chat or SceneProvider(), rng=random.Random(1))
+        result = await service.generate(conversation_id, user_id, request)
+        if deliver:
+            await service.confirm_delivery(result)
+        return result
 
 
 async def count(maker, model):
@@ -254,3 +257,95 @@ def test_can_draw_needs_an_image_id_and_an_adult_age(tmp_path):
     assert not can_draw(feature(tmp_path, loader=FakeLoader()), "test-char")
     assert not can_draw(feature(tmp_path, loader=FakeLoader(definition(image_id=""))), "test-char")
     assert not can_draw(feature(tmp_path, loader=FakeLoader(definition(age=None))), "test-char")
+
+
+def test_nothing_joins_the_chat_until_delivery_is_confirmed(run_db, tmp_path):
+    async def scenario(maker):
+        user_id, character_id, conv_id = await seed_conversation(maker)
+        await add_messages(maker, conv_id, user_id, character_id, 4)
+        feat = feature(tmp_path, variants=1)
+
+        made = await photo(maker, feat, user_id, conv_id, deliver=False)  # Telegram never delivered it
+        assert await count(maker, ImageCacheEntry) == 1  # the picture itself is kept for others
+        async with maker() as s:
+            assert (await s.execute(select(Message).where(Message.message_type == "image"))).first() is None
+
+        # The user never received it, so it is still fresh for them: reused, not remade.
+        again = await photo(maker, feat, user_id, conv_id, deliver=False)
+        assert again.from_cache and again.key == made.key and len(feat.provider.calls) == 1
+        async with maker() as s:
+            assert (await s.execute(select(ImageCacheEntry.use_count))).scalar_one() in (0, None)
+
+        async with maker() as session:  # now one is delivered
+            await ImageService(session, feat, SceneProvider()).confirm_delivery(again)
+        async with maker() as s:
+            assert (await s.execute(select(ImageCacheEntry.use_count))).scalar_one() == 1
+            assert len((await s.execute(select(Message).where(Message.message_type == "image"))).all()) == 1
+
+    run_db(scenario)
+
+
+async def forget_chat_pictures(maker):
+    """What deleting a chat does to the pictures in it: the messages are gone."""
+    from sqlalchemy import delete
+
+    async with maker() as s:
+        await s.execute(delete(Message).where(Message.message_type == "image"))
+        await s.commit()
+
+
+def test_a_user_never_gets_a_picture_again_even_after_deleting_the_chat(run_db, tmp_path):
+    async def scenario(maker):
+        a, character_id, conv_a = await seed_conversation(maker)
+        feat = feature(tmp_path, variants=1)
+
+        first = await photo(maker, feat, a, conv_a)
+        await forget_chat_pictures(maker)  # the chat (and its messages) were deleted
+        again = await photo(maker, feat, a, conv_a)
+
+        assert again.from_cache is False and again.key != first.key
+        assert len(feat.provider.calls) == 2
+
+    run_db(scenario)
+
+
+def test_a_cache_match_is_remembered_for_the_user_it_was_sent_to(run_db, tmp_path):
+    async def scenario(maker):
+        a, character_id, conv_a = await seed_conversation(maker)
+        b, conv_b = await another_chat(maker, character_id, "b@example.test")
+        feat = feature(tmp_path, variants=1)
+
+        made = await photo(maker, feat, a, conv_a)
+        reused = await photo(maker, feat, b, conv_b)  # b gets a's picture from the cache
+        assert reused.from_cache and reused.key == made.key
+
+        await forget_chat_pictures(maker)
+        again = await photo(maker, feat, b, conv_b)  # b already got it: must not get it again
+        assert again.key != made.key and not again.from_cache
+
+        async with maker() as s:
+            delivered = (
+                await s.execute(
+                    select(ImageGeneration.user_id, ImageGeneration.source, ImageGeneration.image_key)
+                    .where(ImageGeneration.delivery == "delivered")
+                )
+            ).all()
+        assert (b, "cache", made.key) in delivered  # the ledger says who got which picture
+
+    run_db(scenario)
+
+
+def test_a_picture_that_was_not_delivered_is_not_remembered(run_db, tmp_path):
+    async def scenario(maker):
+        a, character_id, conv_a = await seed_conversation(maker)
+        b, conv_b = await another_chat(maker, character_id, "b@example.test")
+        feat = feature(tmp_path, variants=1)
+
+        made = await photo(maker, feat, a, conv_a)
+        await photo(maker, feat, b, conv_b, deliver=False)  # Telegram never delivered it to b
+        again = await photo(maker, feat, b, conv_b)
+
+        assert again.from_cache and again.key == made.key  # b has still not seen it
+        assert len(feat.provider.calls) == 1
+
+    run_db(scenario)

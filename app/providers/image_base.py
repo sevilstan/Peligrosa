@@ -25,6 +25,9 @@ def image_extension(data: bytes) -> str | None:
 
 
 class ImageProvider(ABC):
+    name = "unknown"  # recorded in the cost ledger
+    model: str | None = None
+
     @abstractmethod
     async def generate_image(self, prompt: str, character_ref: str | None = None) -> bytes:
         """Return the image as PNG/JPEG/WEBP bytes.
