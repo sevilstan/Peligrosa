@@ -32,6 +32,7 @@ _COMMANDS = (
     ("chats", "cmd_chats"),
     ("history", "cmd_history"),
     ("new", "cmd_new"),
+    ("rename", "cmd_rename"),
     ("name", "cmd_name"),
     ("newgroup", "cmd_newgroup"),
     ("delete", "cmd_delete"),

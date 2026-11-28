@@ -20,6 +20,7 @@ HISTORY_PAGE_SIZE = 8
 GROUP_MIN_CHARACTERS = 2
 GROUP_MAX_CHARACTERS = 4
 _TITLE_LIMIT = 200
+RENAME_LIMIT = 40
 
 
 class ChatNotAvailableError(Exception):
@@ -59,6 +60,22 @@ class _Members:
         if self.is_group:
             return self.title or ", ".join(c.name for c in self.characters)
         return self.characters[0].name
+
+    @property
+    def label(self) -> str:
+        """What the chat is called in lists: its title, plus who it is with."""
+        # New direct chats are titled with the character's name: not a custom title.
+        if self.is_group or not self.title or self.title == self.name:
+            return self.name
+        return f"{self.title} · {self.name}"
+
+
+def clean_title(raw: str | None) -> str | None:
+    """A chat title the user typed: one line, no control characters, <= 40
+    characters. None when nothing usable is left."""
+    text = "".join(" " if ch.isspace() else ch for ch in (raw or "") if ch.isprintable() or ch.isspace())
+    text = " ".join(text.split())
+    return text[:RENAME_LIMIT].strip() or None
 
 
 @dataclass(frozen=True)
@@ -195,6 +212,21 @@ class ChatSessionService:
     async def switch_to(self, user_id, conversation_id) -> ChatContext:
         conversation = await self._one(user_id, conversation_id)
         await self._touch(conversation.id, user_id)
+        return self._context(conversation, created=False)
+
+    async def rename(self, user_id, conversation_id, raw: str | None) -> ChatContext:
+        """Give a chat a title. Empty/unusable text resets a direct chat's
+        title; a group falls back to its member names."""
+        conversation = await self._one(user_id, conversation_id)
+        title = clean_title(raw)
+        # updated_at is kept as is: renaming must not reorder the chat list.
+        await self.session.execute(
+            update(Conversation)
+            .where(Conversation.id == conversation.id)
+            .values(title=title, updated_at=Conversation.updated_at)
+        )
+        await self.session.commit()
+        await self.session.refresh(conversation)
         return self._context(conversation, created=False)
 
     async def get_active(self, user_id) -> ChatContext | None:

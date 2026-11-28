@@ -166,6 +166,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "cmd_characters": "Browse characters",
         "cmd_chats": "My chats",
         "cmd_new": "New chat with the current character",
+        "cmd_rename": "Rename the current chat",
+        "rename_usage": "Send the new name after the command, e.g. <code>/rename Movie night</code>. Use <code>/rename -</code> to remove it.",
+        "rename_saved": "Chat renamed: <b>{name}</b>",
+        "rename_cleared": "The chat name was removed.",
+        "rename_invalid": "That name is not usable. Try a short plain name (up to 40 characters).",
         "cmd_name": "Change your name",
     },
     "tr": {
@@ -325,6 +330,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "cmd_characters": "Karakterlere göz at",
         "cmd_chats": "Sohbetlerim",
         "cmd_new": "Mevcut karakterle yeni sohbet",
+        "cmd_rename": "Bu sohbeti yeniden adlandır",
+        "rename_usage": "Komuttan sonra yeni adı yaz, örn. <code>/rename Film gecesi</code>. Adı kaldırmak için <code>/rename -</code>.",
+        "rename_saved": "Sohbet yeniden adlandırıldı: <b>{name}</b>",
+        "rename_cleared": "Sohbet adı kaldırıldı.",
+        "rename_invalid": "Bu ad kullanılamıyor. Kısa, düz bir ad dene (en fazla 40 karakter).",
         "cmd_name": "Adını değiştir",
     },
 }

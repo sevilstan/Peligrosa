@@ -201,7 +201,7 @@ def chats_keyboard(page: ChatListPage, language: str | None) -> InlineKeyboardMa
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"{marker}{icon}{chat.name} · {date}".strip(" ·"),
+                    text=f"{marker}{icon}{chat.label} · {date}".strip(" ·"),
                     callback_data=f"{CHAT_PREFIX}{chat.conversation_id}",
                 )
             ]

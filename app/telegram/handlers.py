@@ -36,6 +36,7 @@ from app.services.chat_session_service import (
     InvalidGroupError,
     ChatNotAvailableError,
     ChatSessionService,
+    clean_title,
 )
 from app.services.credit_service import (
     CreditConfig,
@@ -109,6 +110,7 @@ logger = logging.getLogger(__name__)
 
 PICKER_PAGE_SIZE = 6
 _RECAP_LIMIT = 300
+_CAPTION_LIMIT = 1024  # the Telegram photo caption limit
 _HISTORY_MESSAGE_LIMIT = 350
 _MAX_USER_TEXT = 4000
 
@@ -205,10 +207,17 @@ async def _announce_chat(
     service: ChatSessionService,
     user: User,
     context: ChatContext,
+    avatars: AvatarProvider | None = None,
 ) -> None:
-    """Tell the user which chat is active and where they left off."""
+    """Tell the user which chat is active and where they left off.
+
+    A direct chat is announced with the character's picture (the text is its
+    caption); groups, characters without a picture and failed uploads fall
+    back to plain text.
+    """
     language = user.language_code
     name = html.escape(context.name)
+    label = html.escape(context.label)
 
     if context.is_group:
         key = "group_ready" if context.created else "group_resumed"
@@ -217,7 +226,7 @@ async def _announce_chat(
 
     # A visible divider: the chat list above belongs to the previous chat.
     text = (
-        t(language, "chat_divider", name=name, icon="👥" if context.is_group else "💬")
+        t(language, "chat_divider", name=label, icon="👥" if context.is_group else "💬")
         + "\n"
         + t(language, key, name=name)
     )
@@ -232,16 +241,31 @@ async def _announce_chat(
                 text=html.escape(shorten(last, _RECAP_LIMIT)),
             )
 
-    await message.answer(
-        text,
-        reply_markup=chat_actions_keyboard(
-            context.character,
-            context.conversation_id,
-            language,
-            is_group=context.is_group,
-            fresh=context.created,
-        ),
+    markup = chat_actions_keyboard(
+        context.character,
+        context.conversation_id,
+        language,
+        is_group=context.is_group,
+        fresh=context.created,
     )
+
+    if avatars is not None and not context.is_group and len(text) <= _CAPTION_LIMIT:
+        source = avatars.resolve(context.character.slug, context.character.avatar_url)
+        if source is not None:
+            try:
+                sent = await message.answer_photo(
+                    photo=source.media, caption=text, reply_markup=markup
+                )
+                avatars.remember(source, sent)
+                return
+            except TelegramBadRequest as exc:
+                # A bad picture must never hide the chat.
+                logger.warning(
+                    "Chat picture could not be sent (%s); using text.", type(exc).__name__
+                )
+                avatars.forget(source)
+
+    await message.answer(text, reply_markup=markup)
 
 
 async def open_chat(
@@ -259,10 +283,12 @@ async def open_chat(
 
     await callback.answer()
     if isinstance(callback.message, Message):
-        await _announce_chat(callback.message, service, user, context)
+        await _announce_chat(callback.message, service, user, context, avatars)
 
 
-async def new_chat(callback: CallbackQuery, session: AsyncSession, user: User, provider) -> None:
+async def new_chat(
+    callback: CallbackQuery, session: AsyncSession, user: User, provider, avatars: AvatarProvider
+) -> None:
     language = user.language_code
     service = ChatSessionService(session, provider)
 
@@ -274,10 +300,12 @@ async def new_chat(callback: CallbackQuery, session: AsyncSession, user: User, p
 
     await callback.answer()
     if isinstance(callback.message, Message):
-        await _announce_chat(callback.message, service, user, context)
+        await _announce_chat(callback.message, service, user, context, avatars)
 
 
-async def new_chat_command(message: Message, session: AsyncSession, user: User, provider) -> None:
+async def new_chat_command(
+    message: Message, session: AsyncSession, user: User, provider, avatars: AvatarProvider
+) -> None:
     service = ChatSessionService(session, provider)
     active = await service.get_active(user.id)
 
@@ -290,7 +318,37 @@ async def new_chat_command(message: Message, session: AsyncSession, user: User, 
         return
 
     context = await service.start_new_chat(user.id, active.character.slug)
-    await _announce_chat(message, service, user, context)
+    await _announce_chat(message, service, user, context, avatars)
+
+
+async def rename_command(
+    message: Message, command: CommandObject, session: AsyncSession, user: User, provider
+) -> None:
+    """/rename Title names the active chat; /rename - clears the title."""
+    language = user.language_code
+    service = ChatSessionService(session, provider)
+    active = await service.get_active(user.id)
+
+    if active is None:
+        await message.answer(t(language, "no_active_chat"))
+        return
+
+    raw = (command.args or "").strip()
+    if not raw:
+        await message.answer(t(language, "rename_usage"))
+        return
+
+    if raw == "-":
+        await service.rename(user.id, active.conversation_id, None)
+        await message.answer(t(language, "rename_cleared"))
+        return
+
+    if clean_title(raw) is None:
+        await message.answer(t(language, "rename_invalid"))
+        return
+
+    context = await service.rename(user.id, active.conversation_id, raw)
+    await message.answer(t(language, "rename_saved", name=html.escape(context.label)))
 
 
 # ------------------------------------------------------------- proactive
@@ -415,7 +473,9 @@ async def history_command(message: Message, session: AsyncSession, user: User, p
     await message.answer(text, reply_markup=markup)
 
 
-async def switch_chat(callback: CallbackQuery, session: AsyncSession, user: User, provider) -> None:
+async def switch_chat(
+    callback: CallbackQuery, session: AsyncSession, user: User, provider, avatars: AvatarProvider
+) -> None:
     language = user.language_code
     service = ChatSessionService(session, provider)
 
@@ -428,7 +488,7 @@ async def switch_chat(callback: CallbackQuery, session: AsyncSession, user: User
 
     await callback.answer()
     if isinstance(callback.message, Message):
-        await _announce_chat(callback.message, service, user, context)
+        await _announce_chat(callback.message, service, user, context, avatars)
 
 
 # -------------------------------------------------------------- deleting
@@ -1409,6 +1469,7 @@ def build_router() -> Router:
     router.message.register(history_command, Command("history"))
     router.message.register(history_command, F.text.in_(all_labels("menu_history")))
     router.message.register(new_chat_command, Command("new"))
+    router.message.register(rename_command, Command("rename"))
     router.message.register(name_command, Command("name"))
     router.message.register(pictures_command, Command("gallery"))
     router.message.register(pictures_command, F.text.in_(all_labels("menu_pictures")))
