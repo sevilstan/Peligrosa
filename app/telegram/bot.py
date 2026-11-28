@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.providers.xavira_provider import XaviraImageProvider
 from app.services.character_definition_loader import CharacterDefinitionLoader
 from app.services.image_service import ImageFeature
-from app.services.image_storage import LocalImageStorage
+from app.services.image_storage import build_image_storage
 from app.telegram.avatars import AvatarProvider
 from app.telegram.photo_offers import PhotoOffers
 from app.telegram.chat_utils import UserLocks
@@ -125,7 +125,7 @@ def build_image_feature() -> ImageFeature | None:
             max_wait=settings.XAVIRA_MAX_WAIT_SECONDS,
             low_balance=settings.XAVIRA_LOW_BALANCE,
         ),
-        storage=LocalImageStorage(settings.IMAGE_STORAGE_DIR),
+        storage=build_image_storage(settings),
         loader=CharacterDefinitionLoader(),
         cache_min_variants=settings.IMAGE_CACHE_MIN_VARIANTS,
     )

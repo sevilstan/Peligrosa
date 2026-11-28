@@ -189,6 +189,38 @@ around). It reads the picture messages of the user's own chats, so deleting a
 chat or using `/deletedata` also removes those pictures from the gallery. If
 a file is missing from the `images` volume, that slide is skipped.
 
+### Pictures in Cloudflare R2 (instead of the local folder)
+
+By default pictures live in `IMAGE_STORAGE_DIR` (a Docker volume). To keep them
+in R2 instead (they survive server loss and need no volume backup):
+
+1. In Cloudflare: create a **private** bucket (do not enable public access or a
+   public domain; pictures are only ever read through the bot).
+2. Create an R2 API token with *Object Read & Write* limited to that one bucket.
+3. In `.env`:
+   ```
+   IMAGE_STORAGE=r2
+   R2_ACCOUNT_ID=...        # Cloudflare account id
+   R2_ACCESS_KEY_ID=...
+   R2_SECRET_ACCESS_KEY=...
+   R2_BUCKET=...
+   R2_PREFIX=               # optional folder inside the bucket
+   ```
+   A missing value stops the bot at start-up and names the setting.
+4. Copy the existing pictures once (keeps every key, safe to repeat, deletes
+   nothing locally; `--dry-run` only counts):
+   ```
+   docker compose run --rm bot python -m scripts.migrate_images_to_r2 --dry-run
+   docker compose run --rm bot python -m scripts.migrate_images_to_r2
+   ```
+5. Restart the bot. Keep the local volume for a while as a fallback; switching
+   back is `IMAGE_STORAGE=local`.
+
+If R2 is unreachable the bot logs `R2 download failed` / `R2 upload failed`
+(error class only, never keys or secrets): a picture that cannot be read is
+skipped, a new picture that cannot be stored fails the request (the user's
+credits are refunded as for any failed picture).
+
 ## 5. Database connections
 
 A reply keeps its database connection while the AI answers, so
