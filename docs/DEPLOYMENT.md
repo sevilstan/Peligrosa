@@ -206,7 +206,10 @@ set `XAVIRA_CREDITS_PER_IMAGE` to what one successful picture uses (0 = not
 recorded; refused and failed calls are assumed to use none, so check this
 against Xavira's billing). `/stats` shows calls, refused/failed, made but not
 delivered, delivered cache hits, Xavira credits used and the characters with
-the most calls. No prompt or chat text is stored. The ledger is accounting data
+the most calls. A delivered row also keeps the picture's file key: that is the record of which user
+already received which picture, so the cache never gives someone the same
+picture twice, even after they deleted the chat that held it (an undelivered
+picture does not count). No prompt or chat text is stored. The ledger is accounting data
 and is not removed by users.
 
 Delivery: a picture is added to the chat history (and the gallery) only after

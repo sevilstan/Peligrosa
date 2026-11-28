@@ -5,7 +5,7 @@ import random
 import pytest
 from sqlalchemy import func, select
 
-from app.models import Character, Conversation, ImageCacheEntry, Message, User
+from app.models import Character, Conversation, ImageCacheEntry, ImageGeneration, Message, User
 from app.providers.image_base import ImageGenerationError
 from app.services.conversation_service import ConversationService
 from app.services.image_prompt_builder import ImageNotAvailable
@@ -255,5 +255,71 @@ def test_nothing_joins_the_chat_until_delivery_is_confirmed(run_db, tmp_path):
         async with maker() as s:
             assert (await s.execute(select(ImageCacheEntry.use_count))).scalar_one() == 1
             assert len((await s.execute(select(Message).where(Message.message_type == "image"))).all()) == 1
+
+    run_db(scenario)
+
+
+async def forget_chat_pictures(maker):
+    """What deleting a chat does to the pictures in it: the messages are gone."""
+    from sqlalchemy import delete
+
+    async with maker() as s:
+        await s.execute(delete(Message).where(Message.message_type == "image"))
+        await s.commit()
+
+
+def test_a_user_never_gets_a_picture_again_even_after_deleting_the_chat(run_db, tmp_path):
+    async def scenario(maker):
+        a, character_id, conv_a = await seed_conversation(maker)
+        feat = feature(tmp_path, variants=1)
+
+        first = await photo(maker, feat, a, conv_a)
+        await forget_chat_pictures(maker)  # the chat (and its messages) were deleted
+        again = await photo(maker, feat, a, conv_a)
+
+        assert again.from_cache is False and again.key != first.key
+        assert len(feat.provider.calls) == 2
+
+    run_db(scenario)
+
+
+def test_a_cache_match_is_remembered_for_the_user_it_was_sent_to(run_db, tmp_path):
+    async def scenario(maker):
+        a, character_id, conv_a = await seed_conversation(maker)
+        b, conv_b = await another_chat(maker, character_id, "b@example.test")
+        feat = feature(tmp_path, variants=1)
+
+        made = await photo(maker, feat, a, conv_a)
+        reused = await photo(maker, feat, b, conv_b)  # b gets a's picture from the cache
+        assert reused.from_cache and reused.key == made.key
+
+        await forget_chat_pictures(maker)
+        again = await photo(maker, feat, b, conv_b)  # b already got it: must not get it again
+        assert again.key != made.key and not again.from_cache
+
+        async with maker() as s:
+            delivered = (
+                await s.execute(
+                    select(ImageGeneration.user_id, ImageGeneration.source, ImageGeneration.image_key)
+                    .where(ImageGeneration.delivery == "delivered")
+                )
+            ).all()
+        assert (b, "cache", made.key) in delivered  # the ledger says who got which picture
+
+    run_db(scenario)
+
+
+def test_a_picture_that_was_not_delivered_is_not_remembered(run_db, tmp_path):
+    async def scenario(maker):
+        a, character_id, conv_a = await seed_conversation(maker)
+        b, conv_b = await another_chat(maker, character_id, "b@example.test")
+        feat = feature(tmp_path, variants=1)
+
+        made = await photo(maker, feat, a, conv_a)
+        await photo(maker, feat, b, conv_b, deliver=False)  # Telegram never delivered it to b
+        again = await photo(maker, feat, b, conv_b)
+
+        assert again.from_cache and again.key == made.key  # b has still not seen it
+        assert len(feat.provider.calls) == 1
 
     run_db(scenario)

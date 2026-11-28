@@ -331,6 +331,7 @@ No prompt and no chat text. Accounting data, like `credit_transactions`.
 | `source` | `VARCHAR(10)` | False | `provider` (a paid call) or `cache` |
 | `status` | `VARCHAR(10)` | False | generation: `ok`, `refused`, `failed` |
 | `delivery` | `VARCHAR(10)` | True | NULL (nothing made), `pending`, `delivered`, `failed` (Telegram) |
+| `image_key` | `VARCHAR(120)` | True | stored picture's file key, set once delivered; indexed with `user_id` (who received which picture) |
 | `provider` / `model` | `VARCHAR(30)` / `VARCHAR(60)` | False / True | e.g. `xavira` / resolution |
 | `provider_credits` | `FLOAT` | True | Xavira credits (provider unit, not money); successful provider generations only, when `XAVIRA_CREDITS_PER_IMAGE` is set |
 | `created_at` | `TIMESTAMPTZ` | False | `now()`, indexed |

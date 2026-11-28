@@ -165,7 +165,7 @@ class ImageService:
         chat history (and so to the user's gallery) and, if it came from the
         cache, counts as reused. Calling it again for the same picture does
         nothing."""
-        if not await self._set_delivery(photo, "delivered"):
+        if not await self._set_delivery(photo, "delivered", image_key=photo.key):
             return
         self.session.add(
             Message(
@@ -191,7 +191,7 @@ class ImageService:
         await self._set_delivery(photo, "failed")
         await self.session.commit()
 
-    async def _set_delivery(self, photo: PhotoResult, status: str) -> bool:
+    async def _set_delivery(self, photo: PhotoResult, status: str, image_key: str | None = None) -> bool:
         """Update this attempt's one ledger row. Only a pending row changes, so
         calling this twice neither duplicates nor overwrites anything. Returns
         False when the row was already settled."""
@@ -200,7 +200,7 @@ class ImageService:
         result = await self.session.execute(
             update(ImageGeneration)
             .where(ImageGeneration.id == photo.ledger_id, ImageGeneration.delivery == "pending")
-            .values(delivery=status)
+            .values(delivery=status, image_key=image_key)
         )
         return result.rowcount > 0
 
@@ -271,14 +271,25 @@ class ImageService:
         if len(entries) < wanted:
             return None  # first make enough different pictures of this scene
 
+        keys = [e.image_key for e in entries]
+        # What this user already received: the chat history (older pictures) and
+        # the ledger of delivered pictures, which outlives a deleted chat.
         seen = set(
             (
                 await self.session.execute(
                     select(Message.image_key)
                     .join(Conversation, Conversation.id == Message.conversation_id)
-                    .where(
-                        Conversation.user_id == user_id,
-                        Message.image_key.in_([e.image_key for e in entries]),
+                    .where(Conversation.user_id == user_id, Message.image_key.in_(keys))
+                )
+            ).scalars()
+        )
+        seen |= set(
+            (
+                await self.session.execute(
+                    select(ImageGeneration.image_key).where(
+                        ImageGeneration.user_id == user_id,
+                        ImageGeneration.delivery == "delivered",
+                        ImageGeneration.image_key.in_(keys),
                     )
                 )
             ).scalars()

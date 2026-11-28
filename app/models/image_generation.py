@@ -23,10 +23,18 @@ class ImageGeneration(Base):
     is only filled for successful provider generations (a refused or failed call is
     assumed to use none; check Xavira billing) and when XAVIRA_CREDITS_PER_IMAGE is set. Holds no prompt and no
     chat text. Accounting data, kept like credit transactions.
+
+    image_key (the stored picture's file key) is filled when the picture was
+    delivered. It is the record of which user already received which picture, so
+    the cache never hands someone the same picture twice, even after they
+    deleted the chat that held it.
     """
 
     __tablename__ = "image_generations"
-    __table_args__ = (Index("ix_image_generations_created", "created_at"),)
+    __table_args__ = (
+        Index("ix_image_generations_created", "created_at"),
+        Index("ix_image_generations_user_image", "user_id", "image_key"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -39,6 +47,7 @@ class ImageGeneration(Base):
     source: Mapped[str] = mapped_column(String(10), nullable=False)  # "provider" or "cache"
     status: Mapped[str] = mapped_column(String(10), nullable=False)  # generation: "ok", "refused", "failed"
     delivery: Mapped[str | None] = mapped_column(String(10), nullable=True)  # NULL, "pending", "delivered", "failed"
+    image_key: Mapped[str | None] = mapped_column(String(120), nullable=True)  # set once delivered
     provider: Mapped[str] = mapped_column(String(30), nullable=False)
     model: Mapped[str | None] = mapped_column(String(60), nullable=True)
     provider_credits: Mapped[float | None] = mapped_column(Float, nullable=True)  # Xavira credits, not money
